@@ -33,7 +33,7 @@ uv run main.py
 
 ### Textures
 
-`https://www2.eecs.berkeley.edu/Research/Projects/CS/vision/papers/efros-iccv99.pdf`
+`https://www2.eecs.berkeley.edu/Research/Projects/CS/vision/papers/efros-iccv99.pdf` (see `texture_synthesis.py`)
 `https://graphics.stanford.edu/papers/texture-synthesis-sig00/texture.pdf`
 
 ### Structures
