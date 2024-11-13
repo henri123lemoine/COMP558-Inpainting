@@ -12,10 +12,11 @@ Install the repo with `git clone https://github.com/henri123lemoine/COMP558-Inpa
 
 ## Usage
 
-To run `main.py`:
+To generate up-to-date results for all experiments, run `uv run main.py`. Note that this will take a long time.
 ```bash
 uv run main.py
 ```
+To specify a specific experiment, run `uv run main.py --experiment <experiment_name>`.
 
 ## Papers
 
