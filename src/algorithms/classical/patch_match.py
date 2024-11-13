@@ -1,5 +1,6 @@
 import numpy as np
 from loguru import logger
+from scipy.ndimage import gaussian_filter
 from tqdm import tqdm
 
 from src.algorithms.base import InpaintingAlgorithm
@@ -36,100 +37,106 @@ class PatchMatchInpainting(InpaintingAlgorithm):
             f"num_iterations={num_iterations}, search_ratio={search_ratio}"
         )
 
-    def _initialize_nn_field(
-        self,
-        image: np.ndarray,
-        mask: np.ndarray,
-    ) -> np.ndarray:
-        """Initialize the nearest-neighbor field randomly.
-
-        Args:
-            image: Input image
-            mask: Binary mask where 1 indicates pixels to inpaint
-
-        Returns:
-            Random initial nearest-neighbor field of shape (H, W, 2)
-            containing (y, x) coordinates for each pixel's nearest neighbor
-        """
-        height, width = image.shape[:2]
-        nn_field = np.zeros((height, width, 2), dtype=np.int32)
-
-        # Get coordinates of pixels to be filled
-        y_coords, x_coords = np.where(mask > 0)
-
-        # For each pixel to be filled, assign random nearest neighbor
-        # from non-masked regions
-        valid_y, valid_x = np.where(mask == 0)
-        if len(valid_y) == 0:
-            raise ValueError("No valid pixels found in source region")
-
-        for y, x in zip(y_coords, x_coords):
-            # Choose random valid pixel
-            idx = np.random.randint(len(valid_y))
-            nn_field[y, x] = [valid_y[idx], valid_x[idx]]
-
-        return nn_field
-
     def _get_patch(
         self,
         image: np.ndarray,
-        center_y: int,
-        center_x: int,
-    ) -> np.ndarray:
-        """Extract patch centered at given coordinates.
-
-        Args:
-            image: Input image
-            center_y: Y-coordinate of patch center
-            center_x: X-coordinate of patch center
-
-        Returns:
-            Patch of size (patch_size, patch_size)
-        """
-        y1 = max(0, center_y - self.half_patch)
-        y2 = min(image.shape[0], center_y + self.half_patch + 1)
-        x1 = max(0, center_x - self.half_patch)
-        x2 = min(image.shape[1], center_x + self.half_patch + 1)
+        mask: np.ndarray,
+        y: int,
+        x: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Extract patch and its validity mask."""
+        h, w = image.shape
+        y1 = max(0, y - self.half_patch)
+        y2 = min(h, y + self.half_patch + 1)
+        x1 = max(0, x - self.half_patch)
+        x2 = min(w, x + self.half_patch + 1)
 
         patch = image[y1:y2, x1:x2]
+        valid = mask[y1:y2, x1:x2] == 0  # Valid pixels are not masked
 
-        # Pad if necessary
         if patch.shape[0] != self.patch_size or patch.shape[1] != self.patch_size:
-            pad_y1 = self.half_patch - (center_y - y1)
-            pad_y2 = self.half_patch - (y2 - center_y - 1)
-            pad_x1 = self.half_patch - (center_x - x1)
-            pad_x2 = self.half_patch - (x2 - center_x - 1)
+            # Pad patch and validity mask if necessary
+            dy1 = self.half_patch - (y - y1)
+            dy2 = self.half_patch - (y2 - y - 1)
+            dx1 = self.half_patch - (x - x1)
+            dx2 = self.half_patch - (x2 - x - 1)
+
             patch = np.pad(
-                patch,
-                ((max(0, pad_y1), max(0, pad_y2)), (max(0, pad_x1), max(0, pad_x2))),
-                mode="edge",
+                patch, ((max(0, dy1), max(0, dy2)), (max(0, dx1), max(0, dx2))), mode="edge"
+            )
+            valid = np.pad(
+                valid,
+                ((max(0, dy1), max(0, dy2)), (max(0, dx1), max(0, dx2))),
+                mode="constant",
+                constant_values=False,
             )
 
-        return patch
+        return patch, valid
 
     def _patch_distance(
         self,
         patch1: np.ndarray,
         patch2: np.ndarray,
-        mask: np.ndarray = None,
+        valid1: np.ndarray,
+        valid2: np.ndarray,
     ) -> float:
-        """Compute distance between two patches.
+        """Compute weighted SSD between valid regions of two patches."""
+        # Only consider pixels valid in both patches
+        valid = valid1 & valid2
+        if not np.any(valid):
+            return float("inf")
 
-        Args:
-            patch1: First patch
-            patch2: Second patch
-            mask: Optional mask indicating valid pixels
+        diff = (patch1 - patch2) ** 2
+        weights = gaussian_filter(valid.astype(float), sigma=1.0)
+        weighted_diff = diff * weights
 
-        Returns:
-            Sum of squared differences between valid pixels
-        """
-        if mask is None:
-            return np.mean((patch1 - patch2) ** 2)
-        else:
-            valid_pixels = mask == 0
-            if not np.any(valid_pixels):
-                return float("inf")
-            return np.sum((patch1 - patch2) ** 2 * valid_pixels) / np.sum(valid_pixels)
+        return np.sum(weighted_diff * valid) / (np.sum(weights * valid) + 1e-10)
+
+    def _initialize_nn_field(
+        self,
+        image: np.ndarray,
+        mask: np.ndarray,
+    ) -> np.ndarray:
+        """Initialize nearest-neighbor field with good candidates."""
+        h, w = image.shape
+        nn_field = np.zeros((h, w, 2), dtype=np.int32)
+
+        # Get valid source regions
+        source_y, source_x = np.where(mask == 0)
+        if len(source_y) == 0:
+            raise ValueError("No valid source regions found")
+
+        # For each target pixel
+        target_y, target_x = np.where(mask > 0)
+
+        for y, x in zip(target_y, target_x):
+            # Get target patch
+            target_patch, target_valid = self._get_patch(image, mask, y, x)
+
+            # Try several random candidates
+            best_dist = float("inf")
+            best_pos = None
+
+            for _ in range(10):  # Try 10 random positions
+                idx = np.random.randint(len(source_y))
+                sy, sx = source_y[idx], source_x[idx]
+
+                # Only consider if the patch would be mostly valid
+                source_patch, source_valid = self._get_patch(image, mask, sy, sx)
+                dist = self._patch_distance(target_patch, source_patch, target_valid, source_valid)
+
+                if dist < best_dist:
+                    best_dist = dist
+                    best_pos = [sy, sx]
+
+            if best_pos is not None:
+                nn_field[y, x] = best_pos
+            else:
+                # Fallback to random valid position
+                idx = np.random.randint(len(source_y))
+                nn_field[y, x] = [source_y[idx], source_x[idx]]
+
+        return nn_field
 
     def _propagate(
         self,
@@ -138,55 +145,50 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         nn_field: np.ndarray,
         reverse: bool = False,
     ) -> None:
-        """Propagate good matches to neighboring pixels.
-
-        Args:
-            image: Input image
-            mask: Binary mask where 1 indicates pixels to inpaint
-            nn_field: Current nearest-neighbor field
-            reverse: Whether to propagate in reverse direction
-        """
-        height, width = image.shape[:2]
-        y_range = range(height - 1, -1, -1) if reverse else range(height)
-        x_range = range(width - 1, -1, -1) if reverse else range(width)
+        """Propagate good matches to neighboring pixels."""
+        h, w = image.shape
+        y_range = range(h - 1, -1, -1) if reverse else range(h)
+        x_range = range(w - 1, -1, -1) if reverse else range(w)
 
         for y in y_range:
             for x in x_range:
                 if mask[y, x] == 0:  # Skip source pixels
                     continue
 
-                # Get current best match
-                current_nn = nn_field[y, x]
-                current_patch = self._get_patch(image, y, x)
-                best_dist = self._patch_distance(
-                    current_patch,
-                    self._get_patch(image, current_nn[0], current_nn[1]),
-                    self._get_patch(mask, y, x),
-                )
+                current_patch, current_valid = self._get_patch(image, mask, y, x)
+                best_nn = nn_field[y, x]
+                best_dist = float("inf")
 
-                # Try propagating from left/right neighbor
-                if 0 <= x + (-1 if reverse else 1) < width:
-                    neighbor_nn = nn_field[y, x + (-1 if reverse else 1)]
-                    neighbor_patch = self._get_patch(image, neighbor_nn[0], neighbor_nn[1])
-                    dist = self._patch_distance(
-                        current_patch, neighbor_patch, self._get_patch(mask, y, x)
+                # Try current best match
+                if all(best_nn >= 0):
+                    source_patch, source_valid = self._get_patch(
+                        image, mask, best_nn[0], best_nn[1]
+                    )
+                    best_dist = self._patch_distance(
+                        current_patch, source_patch, current_valid, source_valid
                     )
 
-                    if dist < best_dist:
-                        nn_field[y, x] = neighbor_nn
-                        best_dist = dist
+                # Try propagating from neighbors
+                for dy, dx in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < h and 0 <= nx < w and all(nn_field[ny, nx] >= 0):
+                        # Offset the neighbor's NN in opposite direction
+                        prop_y = nn_field[ny, nx][0] - dy
+                        prop_x = nn_field[ny, nx][1] - dx
 
-                # Try propagating from up/down neighbor
-                if 0 <= y + (-1 if reverse else 1) < height:
-                    neighbor_nn = nn_field[y + (-1 if reverse else 1), x]
-                    neighbor_patch = self._get_patch(image, neighbor_nn[0], neighbor_nn[1])
-                    dist = self._patch_distance(
-                        current_patch, neighbor_patch, self._get_patch(mask, y, x)
-                    )
+                        if 0 <= prop_y < h and 0 <= prop_x < w and mask[prop_y, prop_x] == 0:
+                            source_patch, source_valid = self._get_patch(
+                                image, mask, prop_y, prop_x
+                            )
+                            dist = self._patch_distance(
+                                current_patch, source_patch, current_valid, source_valid
+                            )
 
-                    if dist < best_dist:
-                        nn_field[y, x] = neighbor_nn
-                        best_dist = dist
+                            if dist < best_dist:
+                                best_dist = dist
+                                best_nn = [prop_y, prop_x]
+
+                nn_field[y, x] = best_nn
 
     def _random_search(
         self,
@@ -194,117 +196,55 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         mask: np.ndarray,
         nn_field: np.ndarray,
     ) -> None:
-        """Perform random search to improve matches.
+        """Perform random search around current best match."""
+        h, w = image.shape
+        search_radius = max(h, w)
 
-        Args:
-            image: Input image
-            mask: Binary mask where 1 indicates pixels to inpaint
-            nn_field: Current nearest-neighbor field
-        """
-        height, width = image.shape[:2]
-        max_search_radius = max(height, width)
+        # Get valid source regions once
+        source_y, source_x = np.where(mask == 0)
+        if len(source_y) == 0:
+            return
 
-        for y in range(height):
-            for x in range(width):
+        for y in range(h):
+            for x in range(w):
                 if mask[y, x] == 0:  # Skip source pixels
                     continue
 
-                current_nn = nn_field[y, x]
-                current_patch = self._get_patch(image, y, x)
-                best_dist = self._patch_distance(
-                    current_patch,
-                    self._get_patch(image, current_nn[0], current_nn[1]),
-                    self._get_patch(mask, y, x),
-                )
+                current_patch, current_valid = self._get_patch(image, mask, y, x)
+                best_nn = nn_field[y, x]
+                best_dist = float("inf")
 
-                # Try random candidates
-                search_radius = max_search_radius
-                while search_radius >= 1:
-                    # Generate random offset within search radius
-                    rand_y = current_nn[0] + np.random.randint(-search_radius, search_radius + 1)
-                    rand_x = current_nn[1] + np.random.randint(-search_radius, search_radius + 1)
-
-                    # Clamp to image boundaries
-                    rand_y = np.clip(rand_y, 0, height - 1)
-                    rand_x = np.clip(rand_x, 0, width - 1)
-
-                    # Skip if in masked region
-                    if mask[rand_y, rand_x] > 0:
-                        continue
-
-                    # Compute distance
-                    rand_patch = self._get_patch(image, rand_y, rand_x)
-                    dist = self._patch_distance(
-                        current_patch, rand_patch, self._get_patch(mask, y, x)
+                if all(best_nn >= 0):
+                    source_patch, source_valid = self._get_patch(
+                        image, mask, best_nn[0], best_nn[1]
+                    )
+                    best_dist = self._patch_distance(
+                        current_patch, source_patch, current_valid, source_valid
                     )
 
-                    if dist < best_dist:
-                        nn_field[y, x] = [rand_y, rand_x]
-                        best_dist = dist
+                radius = search_radius
+                while radius >= 1:
+                    # Try random offsets within current search radius
+                    for _ in range(3):  # Try a few random positions at each radius
+                        offset_y = np.random.randint(-radius, radius + 1)
+                        offset_x = np.random.randint(-radius, radius + 1)
 
-                    search_radius *= self.search_ratio
+                        ny = best_nn[0] + offset_y
+                        nx = best_nn[1] + offset_x
 
-    def _reconstruct_image(
-        self,
-        image: np.ndarray,
-        mask: np.ndarray,
-        nn_field: np.ndarray,
-    ) -> np.ndarray:
-        """Reconstruct the image using the nearest-neighbor field.
+                        if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] == 0:
+                            source_patch, source_valid = self._get_patch(image, mask, ny, nx)
+                            dist = self._patch_distance(
+                                current_patch, source_patch, current_valid, source_valid
+                            )
 
-        Args:
-            image: Input image
-            mask: Binary mask where 1 indicates pixels to inpaint
-            nn_field: Nearest-neighbor field
+                            if dist < best_dist:
+                                best_dist = dist
+                                best_nn = [ny, nx]
 
-        Returns:
-            Reconstructed image
-        """
-        result = image.copy()
-        height, width = image.shape[:2]
+                    radius = int(radius * self.search_ratio)
 
-        # Create weight accumulator for blending
-        weights = np.zeros_like(image, dtype=np.float32)
-        accumulated = np.zeros_like(image, dtype=np.float32)
-
-        # Create Gaussian weights for patches
-        y, x = np.mgrid[
-            -self.half_patch : self.half_patch + 1, -self.half_patch : self.half_patch + 1
-        ]
-        patch_weights = np.exp(-(x**2 + y**2) / (2 * self.alpha**2))
-
-        # Reconstruct each masked pixel
-        for y in range(height):
-            for x in range(width):
-                if mask[y, x] == 0:
-                    continue
-
-                # Get corresponding patch from source
-                src_y, src_x = nn_field[y, x]
-                patch = self._get_patch(image, src_y, src_x)
-
-                # Add weighted contribution
-                y1 = max(0, y - self.half_patch)
-                y2 = min(height, y + self.half_patch + 1)
-                x1 = max(0, x - self.half_patch)
-                x2 = min(width, x + self.half_patch + 1)
-
-                patch_y1 = self.half_patch - (y - y1)
-                patch_y2 = self.half_patch + (y2 - y)
-                patch_x1 = self.half_patch - (x - x1)
-                patch_x2 = self.half_patch + (x2 - x)
-
-                weight_region = patch_weights[patch_y1:patch_y2, patch_x1:patch_x2]
-                patch_region = patch[patch_y1:patch_y2, patch_x1:patch_x2]
-
-                accumulated[y1:y2, x1:x2] += weight_region * patch_region
-                weights[y1:y2, x1:x2] += weight_region
-
-        # Normalize by accumulated weights
-        mask_region = mask > 0
-        result[mask_region] = accumulated[mask_region] / (weights[mask_region] + 1e-10)
-
-        return result
+                nn_field[y, x] = best_nn
 
     def inpaint(
         self,
@@ -312,43 +252,51 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         mask: np.ndarray,
         **kwargs,
     ) -> np.ndarray:
-        """Inpaint the masked region using PatchMatch.
-
-        Args:
-            image: Input image
-            mask: Binary mask where 1 indicates pixels to inpaint
-
-        Returns:
-            Inpainted image
-        """
+        """Inpaint using PatchMatch algorithm."""
         if len(image.shape) != 2:
             raise ValueError("Only grayscale images are supported")
 
-        height, width = image.shape
-        if height < self.patch_size or width < self.patch_size:
+        h, w = image.shape
+        if h < self.patch_size or w < self.patch_size:
             raise ValueError(
-                f"Image dimensions ({height}, {width}) must be larger "
-                f"than patch size {self.patch_size}"
+                f"Image dimensions ({h}, {w}) must be larger " f"than patch size {self.patch_size}"
             )
 
         logger.info(f"Starting PatchMatch inpainting with {self.num_iterations} iterations")
 
-        # Initialize nearest-neighbor field
-        nn_field = self._initialize_nn_field(image, mask)
+        # Initialize with current image
+        result = image.copy()
+        current_mask = mask.copy()
 
-        # Iteratively improve the nearest-neighbor field
+        # Main PatchMatch iterations
         for iter_idx in tqdm(range(self.num_iterations), desc="PatchMatch"):
-            # Propagate in forward direction
-            self._propagate(image, mask, nn_field, reverse=False)
+            # Initialize NN field
+            nn_field = self._initialize_nn_field(result, current_mask)
 
-            # Propagate in reverse direction
-            self._propagate(image, mask, nn_field, reverse=True)
+            # PatchMatch iterations
+            for _ in range(2):  # Inner iterations for refinement
+                # Forward propagation
+                self._propagate(result, current_mask, nn_field, reverse=False)
 
-            # Random search
-            self._random_search(image, mask, nn_field)
+                # Random search
+                self._random_search(result, current_mask, nn_field)
 
-        # Reconstruct the final image
-        result = self._reconstruct_image(image, mask, nn_field)
+                # Backward propagation
+                self._propagate(result, current_mask, nn_field, reverse=True)
+
+            # Update image using current NN field
+            new_result = result.copy()
+            for y, x in zip(*np.where(current_mask > 0)):
+                nn_y, nn_x = nn_field[y, x]
+                new_result[y, x] = result[nn_y, nn_x]
+
+            # Blend results
+            result = new_result
+
+            # Update mask
+            if iter_idx < self.num_iterations - 1:
+                # Gradually reduce the mask
+                current_mask = gaussian_filter(current_mask, sigma=0.5) > 0.5
 
         logger.info("PatchMatch inpainting completed")
         return result
