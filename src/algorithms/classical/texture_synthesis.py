@@ -1,12 +1,3 @@
-"""Implementation of Efros-Leung texture synthesis algorithm for inpainting.
-
-Reference:
-    Efros, Alexei A., and Thomas K. Leung. "Texture synthesis by non-parametric sampling."
-    In Proceedings of the seventh IEEE international conference on computer vision,
-    vol. 2, pp. 1033-1038. IEEE, 1999.
-    `https://www2.eecs.berkeley.edu/Research/Projects/CS/vision/papers/efros-iccv99.pdf`
-"""
-
 import numpy as np
 from loguru import logger
 from tqdm import tqdm
@@ -15,7 +6,13 @@ from src.algorithms.base import InpaintingAlgorithm
 
 
 class EfrosLeungInpainting(InpaintingAlgorithm):
-    """Efros-Leung texture synthesis algorithm adapted for inpainting."""
+    """Efros-Leung texture synthesis algorithm adapted for inpainting.
+
+    Efros, Alexei A., and Thomas K. Leung. "Texture synthesis by non-parametric sampling."
+    In Proceedings of the seventh IEEE international conference on computer vision,
+    vol. 2, pp. 1033-1038. IEEE, 1999.
+    `https://www2.eecs.berkeley.edu/Research/Projects/CS/vision/papers/efros-iccv99.pdf`
+    """
 
     def __init__(
         self,
