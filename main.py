@@ -2,6 +2,7 @@ import argparse
 
 from loguru import logger
 
+from src.algorithms.classical.navier_stokes import NavierStokesInpainting
 from src.algorithms.classical.patch_match import PatchMatchInpainting
 from src.algorithms.classical.texture_synthesis import EfrosLeungInpainting
 from src.experiments.comparison import ComparisonExperiment
@@ -24,6 +25,17 @@ def get_algorithm(name: str, quick: bool = False):
             search_ratio=0.5,
             alpha=0.1,
         )
+    elif name == "navier_stokes":
+        return NavierStokesInpainting(
+            dt=0.02 if quick else 0.005,
+            num_iterations=100 if quick else 3000,
+            relaxation=1.0,
+            anisotropic_lambda=2.0,
+            sigma=1.0,
+            poisson_iterations=20 if quick else 1000,
+            diffusion_iterations=3 if quick else 20,
+            diffusion_frequency=10,
+        )
     else:
         raise ValueError(f"Unknown algorithm: {name}")
 
@@ -37,14 +49,19 @@ def run_experiments(args: argparse.Namespace) -> None:
             parser.error("--algorithm is required for single experiment")
 
         algorithm = get_algorithm(args.algorithm, args.quick)
-        experiment = ComparisonExperiment(name=f"single_{args.algorithm}", algorithms=[algorithm])
+        experiment = ComparisonExperiment(
+            name=f"single_{args.algorithm}",
+            algorithms=[algorithm],
+        )
     elif args.experiment == "classical_comparison" or args.experiment == "all":
         algorithms = [
             get_algorithm("efros_leung", args.quick),
             get_algorithm("patch_match", args.quick),
+            get_algorithm("navier_stokes", args.quick),
         ]
         experiment = ComparisonExperiment(
-            name="classical_methods_comparison", algorithms=algorithms
+            name="classical_methods_comparison",
+            algorithms=algorithms,
         )
 
     experiment.run()
@@ -63,7 +80,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--algorithm",
         type=str,
-        choices=["efros_leung", "patch_match"],
+        choices=["efros_leung", "patch_match", "navier_stokes"],
         help="Algorithm to use for single experiment",
     )
     parser.add_argument(
