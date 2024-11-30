@@ -50,8 +50,8 @@ class PatchMatchInpainting(InpaintingAlgorithm):
 
     def __init__(
         self,
-        patch_size: int = 7,
-        num_iterations: int = 5,
+        patch_size: int = 9,
+        num_iterations: int = 20,
         search_ratio: float = 0.5,
         alpha: float = 0.1,
     ) -> None:

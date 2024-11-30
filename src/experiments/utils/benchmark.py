@@ -288,8 +288,9 @@ class InpaintingBenchmark:
 
 
 if __name__ == "__main__":
-    from src.algorithms.classical import (
+    from src.algorithms import (
         EfrosLeungInpainting,
+        LamaInpainting,
         NavierStokesInpainting,
         PatchMatchInpainting,
     )
@@ -298,6 +299,7 @@ if __name__ == "__main__":
         NavierStokesInpainting(),
         EfrosLeungInpainting(),
         PatchMatchInpainting(),
+        LamaInpainting(),
     ]
 
     image_size = 128

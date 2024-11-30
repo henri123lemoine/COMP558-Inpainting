@@ -1,8 +1,24 @@
+from dataclasses import dataclass
+
 import numpy as np
 from loguru import logger
 from tqdm import tqdm
 
 from src.algorithms.base import InpaintingAlgorithm
+
+
+@dataclass(frozen=True)
+class EfrosLeungParams:
+    window_size: int = 11
+    error_threshold: float = 0.1
+    sigma: float = 1.0
+    n_candidates: int = 10
+    search_step: int = 2
+    batch_size: int = 4
+
+    def __post_init__(self):
+        if self.window_size % 2 == 0:
+            raise ValueError("Window size must be odd")
 
 
 class EfrosLeungInpainting(InpaintingAlgorithm):
@@ -20,6 +36,8 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         error_threshold: float = 0.1,
         sigma: float = 1.0,
         n_candidates: int = 10,
+        search_step: int = 2,
+        batch_size: int = 4,
     ):
         """Initialize the algorithm.
 
@@ -31,13 +49,14 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         """
         super().__init__("EfrosLeung")
 
-        if window_size % 2 == 0:
-            raise ValueError("Window size must be odd")
-
-        self.window_size = window_size
-        self.error_threshold = error_threshold
-        self.sigma = sigma
-        self.n_candidates = n_candidates
+        self.params = EfrosLeungParams(
+            window_size=window_size,
+            error_threshold=error_threshold,
+            sigma=sigma,
+            n_candidates=n_candidates,
+            search_step=search_step,
+            batch_size=batch_size,
+        )
 
         # Create Gaussian weighting kernel
         self.weights = self._create_gaussian_kernel()
@@ -48,14 +67,14 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
 
     def _create_gaussian_kernel(self) -> np.ndarray:
         """Create a Gaussian weighting kernel for the window."""
-        kernel_size = self.window_size
+        kernel_size = self.params.window_size
         kernel = np.zeros((kernel_size, kernel_size))
         center = kernel_size // 2
 
         for i in range(kernel_size):
             for j in range(kernel_size):
                 dist = np.sqrt((i - center) ** 2 + (j - center) ** 2)
-                kernel[i, j] = np.exp(-(dist**2) / (2 * self.sigma**2))
+                kernel[i, j] = np.exp(-(dist**2) / (2 * self.params.sigma**2))
 
         return kernel / kernel.sum()
 
@@ -75,7 +94,7 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         Returns:
             Tuple of (neighborhood, validity_mask)
         """
-        half_window = self.window_size // 2
+        half_window = self.params.window_size // 2
         y, x = pos
 
         # Extract neighborhood and corresponding mask
@@ -110,7 +129,7 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         Returns:
             Tuple of (error, (y, x) position)
         """
-        half_window = self.window_size // 2
+        half_window = self.params.window_size // 2
         height, width = image.shape[:2]
 
         # Prepare valid positions for searching
@@ -138,7 +157,7 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
                     self.weights * valid_mask
                 )
 
-                if error < self.error_threshold:
+                if error < self.params.error_threshold:
                     candidates.append((error, (y, x)))
                     if error < best_error:
                         best_error = error
@@ -147,7 +166,7 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         # If we found candidates, randomly choose from the best ones
         if candidates:
             candidates.sort(key=lambda x: x[0])
-            n_select = min(self.n_candidates, len(candidates))
+            n_select = min(self.params.n_candidates, len(candidates))
             error, pos = candidates[np.random.randint(n_select)]
             return error, pos
 
@@ -190,7 +209,7 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         pbar = tqdm(total=min(n_pixels, max_steps), desc="Inpainting")
 
         filled_pixels = 0
-        half_window = self.window_size // 2
+        half_window = self.params.window_size // 2
 
         while filled_pixels < max_steps:
             # Find unfilled pixel with most filled neighbors
