@@ -45,7 +45,7 @@ class PatchMatchInpainting(InpaintingAlgorithm):
     """
 
     # Constants
-    MIN_VALID_RATIO: Final[float] = 0.5  # Minimum ratio of valid pixels in patch
+    MIN_VALID_RATIO: Final[float] = 0.3  # Minimum ratio of valid pixels in patch
     MAX_RANDOM_SAMPLES: Final[int] = 10  # Maximum random samples per position
 
     def __init__(
@@ -201,7 +201,7 @@ class PatchMatchInpainting(InpaintingAlgorithm):
             else:
                 # Fallback to closest valid pixel
                 nn_field[y, x] = [source_y[0], source_x[0]]
-                logger.warning(f"No good match found for pixel ({y}, {x})")
+                # logger.warning(f"No good match found for pixel ({y}, {x})")
 
         return nn_field
 
