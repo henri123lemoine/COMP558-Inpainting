@@ -123,6 +123,7 @@ class NavierStokesInpainting(InpaintingAlgorithm):
         return 1 / (1 + (g / K) ** 2)
     
     
+    
 
 
 
