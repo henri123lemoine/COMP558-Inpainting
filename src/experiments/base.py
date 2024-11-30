@@ -1,3 +1,4 @@
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -229,7 +230,7 @@ class InpaintingExperiment(ABC):
 
             # Process each image
             for image_name, data in dataset.items():
-                logger.info(f"Processing image: {image_name}")
+                # logger.info(f"Processing image: {image_name}")
 
                 # Validate input
                 is_valid, error_msg = self.validate_image_mask_pair(
@@ -240,9 +241,6 @@ class InpaintingExperiment(ABC):
                     continue
 
                 try:
-                    # Time the inpainting process
-                    import time
-
                     start_time = time.time()
                     result = self.algorithm.inpaint(data["image"], data["mask"])
                     execution_time = time.time() - start_time
