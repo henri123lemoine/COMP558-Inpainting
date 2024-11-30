@@ -414,7 +414,62 @@ class InpaintingDataset:
         return real_cases
 
 
+def validate_mask_coverage(
+    mask: np.ndarray, name: str, min_coverage: float = 0.05, max_coverage: float = 0.5
+) -> None:
+    """Validate mask coverage and distribution."""
+    coverage = np.mean(mask > 0)
+    logger.info(f"{name} mask coverage: {coverage:.1%}")
+
+    if coverage < min_coverage:
+        raise ValueError(f"{name} mask coverage too low: {coverage:.1%}")
+    if coverage > max_coverage:
+        raise ValueError(f"{name} mask coverage too high: {coverage:.1%}")
+
+    # Check for connectivity - masks shouldn't be too fragmented
+    if name != "random":  # Skip for random masks which are intentionally separate
+        labeled, num_features = ndimage.label(mask)
+        if num_features > 5:
+            logger.warning(f"{name} mask might be too fragmented: {num_features} separate regions")
+
+
+def visualize_mask_distribution(
+    dataset: InpaintingDataset, size: int = 128, num_samples: int = 10
+) -> None:
+    """Generate and visualize multiple masks to check distribution."""
+    fig, axes = plt.subplots(3, num_samples, figsize=(2 * num_samples, 6))
+    mask_types = ["random", "brush", "center"]
+
+    coverage_stats = {mask_type: [] for mask_type in mask_types}
+
+    for i in range(num_samples):
+        img = np.zeros((size, size), dtype=np.uint8)
+
+        for j, mask_type in enumerate(mask_types):
+            mask = dataset._create_mask(img, mask_type)
+            coverage = np.mean(mask > 0)
+            coverage_stats[mask_type].append(coverage)
+
+            axes[j, i].imshow(mask, cmap="gray")
+            axes[j, i].axis("off")
+            if i == 0:
+                axes[j, i].set_ylabel(mask_type)
+
+    plt.tight_layout()
+
+    for mask_type in mask_types:
+        coverages = coverage_stats[mask_type]
+        logger.info(f"\n{mask_type} mask statistics:")
+        logger.info(f"Mean coverage: {np.mean(coverages):.1%}")
+        logger.info(f"Std coverage: {np.std(coverages):.1%}")
+        logger.info(f"Min coverage: {np.min(coverages):.1%}")
+        logger.info(f"Max coverage: {np.max(coverages):.1%}")
+
+
 if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    from scipy import ndimage
+
     dataset = InpaintingDataset(Path("data/datasets"))
 
     # Generate synthetic dataset
@@ -425,8 +480,6 @@ if __name__ == "__main__":
 
     # Combine all cases
     test_cases = {**synthetic_cases, **real_cases}
-
-    import matplotlib.pyplot as plt
 
     def plot_case(image: np.ndarray, masks: dict[str, np.ndarray], title: str) -> None:
         n_masks = len(masks)
@@ -466,75 +519,10 @@ if __name__ == "__main__":
 
     logger.info("Generated and saved example visualizations to data/dataset_examples/")
 
-
-if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-
-    def validate_mask_coverage(
-        mask: np.ndarray, name: str, min_coverage: float = 0.05, max_coverage: float = 0.5
-    ) -> None:
-        """Validate mask coverage and distribution."""
-        coverage = np.mean(mask > 0)
-        logger.info(f"{name} mask coverage: {coverage:.1%}")
-
-        if coverage < min_coverage:
-            raise ValueError(f"{name} mask coverage too low: {coverage:.1%}")
-        if coverage > max_coverage:
-            raise ValueError(f"{name} mask coverage too high: {coverage:.1%}")
-
-        # Check for connectivity - masks shouldn't be too fragmented
-        if name != "random":  # Skip for random masks which are intentionally separate
-            from scipy import ndimage
-
-            labeled, num_features = ndimage.label(mask)
-            if num_features > 5:
-                logger.warning(
-                    f"{name} mask might be too fragmented: {num_features} separate regions"
-                )
-
-    def visualize_mask_distribution(
-        dataset: InpaintingDataset, size: int = 128, num_samples: int = 10
-    ) -> None:
-        """Generate and visualize multiple masks to check distribution."""
-        fig, axes = plt.subplots(3, num_samples, figsize=(2 * num_samples, 6))
-        mask_types = ["random", "brush", "center"]
-
-        coverage_stats = {mask_type: [] for mask_type in mask_types}
-
-        for i in range(num_samples):
-            img = np.zeros((size, size), dtype=np.uint8)
-
-            for j, mask_type in enumerate(mask_types):
-                mask = dataset._create_mask(img, mask_type)
-                coverage = np.mean(mask > 0)
-                coverage_stats[mask_type].append(coverage)
-
-                axes[j, i].imshow(mask, cmap="gray")
-                axes[j, i].axis("off")
-                if i == 0:
-                    axes[j, i].set_ylabel(mask_type)
-
-        plt.tight_layout()
-
-        # Print statistics
-        for mask_type in mask_types:
-            coverages = coverage_stats[mask_type]
-            logger.info(f"\n{mask_type} mask statistics:")
-            logger.info(f"Mean coverage: {np.mean(coverages):.1%}")
-            logger.info(f"Std coverage: {np.std(coverages):.1%}")
-            logger.info(f"Min coverage: {np.min(coverages):.1%}")
-            logger.info(f"Max coverage: {np.max(coverages):.1%}")
-
-    # Run validation
-    dataset = InpaintingDataset(Path("data/test_masks"))
-    size = 16
-    test_image = np.zeros((size, size), dtype=np.uint8)
-
-    # Test individual masks
+    # If you want to run validation tests, uncomment these lines:
+    test_image = np.zeros((16, 16), dtype=np.uint8)
     for mask_type in ["random", "brush", "center"]:
         mask = dataset._create_mask(test_image, mask_type)
         validate_mask_coverage(mask, mask_type)
-
-    # Visualize distribution
-    visualize_mask_distribution(dataset, size=size)
+    visualize_mask_distribution(dataset, size=16)
     plt.show()
