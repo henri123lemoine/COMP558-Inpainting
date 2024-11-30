@@ -129,6 +129,8 @@ class NavierStokesInpainting(InpaintingAlgorithm):
         )
         return L
         
+    def perona_malik(g, K=2):
+        return 1 / (1 + (g / K) ** 2)
     
 
     
