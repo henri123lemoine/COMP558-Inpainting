@@ -18,6 +18,12 @@ uv run main.py
 ```
 To specify a specific experiment, run `uv run main.py --experiment <experiment_name>`.
 
+Run
+```bash
+uv run -m src.experiments.utils.benchmark
+```
+To run the benchmarks. Results will be saved in `data/benchmark_results/`.
+
 ## Papers
 
 ### General

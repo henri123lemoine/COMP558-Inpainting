@@ -303,9 +303,9 @@ if __name__ == "__main__":
         synthetic_size=16,  # 128
         n_real_images=3,  # 5
         real_size=16,  # 128
-        save_individual=False,  # True
-        save_comparisons=False,  # True
-        save_heatmaps=False,  # True
+        save_individual=True,
+        save_comparisons=True,
+        save_heatmaps=True,
     )
 
     benchmark = InpaintingBenchmark(algorithms=algorithms, config=config)
