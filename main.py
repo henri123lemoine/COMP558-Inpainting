@@ -2,9 +2,11 @@ import argparse
 
 from loguru import logger
 
-from src.algorithms.classical.efros_leung import EfrosLeungInpainting
-from src.algorithms.classical.navier_stokes import NavierStokesInpainting
-from src.algorithms.classical.patch_match import PatchMatchInpainting
+from src.algorithms.classical import (
+    EfrosLeungInpainting,
+    NavierStokesInpainting,
+    PatchMatchInpainting,
+)
 from src.experiments.comparison import ComparisonExperiment
 from src.utils.logging import setup_logger
 
