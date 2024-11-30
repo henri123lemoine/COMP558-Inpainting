@@ -10,13 +10,13 @@ from src.algorithms.base import Image, InpaintingAlgorithm, Mask
 
 
 @dataclass(frozen=True)
-class DeepLearningParams:
+class LamaParams:
     model_path: str = "Carve/LaMa-ONNX"
     model_file: str = "lama_fp32.onnx"
     input_size: tuple[int, int] = (512, 512)
 
 
-class DeepLearningInpainting(InpaintingAlgorithm):
+class LamaInpainting(InpaintingAlgorithm):
     """Deep Learning-based inpainting using LaMa ONNX model."""
 
     def __init__(
@@ -25,8 +25,8 @@ class DeepLearningInpainting(InpaintingAlgorithm):
         model_file: str = "lama_fp32.onnx",
         input_size: tuple[int, int] = (512, 512),
     ):
-        super().__init__(name="DeepLearning")
-        self.params = DeepLearningParams(
+        super().__init__(name="Lama")
+        self.params = LamaParams(
             model_path=model_path, model_file=model_file, input_size=input_size
         )
 
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     image = image.astype(np.float32) / 255.0
     mask = (mask > 0.5).astype(np.float32)
 
-    inpainter = DeepLearningInpainting()
+    inpainter = LamaInpainting()
     result = inpainter.inpaint(image, mask)
 
     # Display using matplotlib

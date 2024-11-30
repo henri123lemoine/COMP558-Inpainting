@@ -1,3 +1,3 @@
-from .dl import DeepLearningInpainting
+from .lama import LamaInpainting
 
-__all__ = ["DeepLearningInpainting"]
+__all__ = ["LamaInpainting"]
