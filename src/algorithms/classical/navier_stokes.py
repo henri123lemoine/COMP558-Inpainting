@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from src.algorithms.base import InpaintingAlgorithm
+from src.algorithms.base import Image, InpaintingAlgorithm, Mask
 
 
 @dataclass(frozen=True)
@@ -20,5 +20,9 @@ class NavierStokesInpainting(InpaintingAlgorithm):
     `https://www.math.ucla.edu/~bertozzi/papers/cvpr01.pdf`
     """
 
-    # TODO
-    pass
+    def __init__(self):
+        super().__init__(name="Navier-Stokes")
+        self.params = NavierStokesParams()
+
+    def inpaint(self, image: Image, mask: Mask) -> Image:
+        return image
