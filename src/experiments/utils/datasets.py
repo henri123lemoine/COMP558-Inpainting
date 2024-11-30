@@ -150,8 +150,10 @@ class InpaintingDataset:
         # Add 3-6 random ellipses
         n_holes = np.random.randint(3, 7)
         for _ in range(n_holes):
-            center = (np.random.randint(0, w), np.random.randint(0, h))
-            axes = (np.random.randint(10, 30), np.random.randint(10, 30))
+            # Generate center away from edges
+            center = (np.random.randint(w // 4, 3 * w // 4), np.random.randint(h // 4, 3 * h // 4))
+            # Make axes relative to image size
+            axes = (np.random.randint(w // 8, w // 4), np.random.randint(h // 8, h // 4))
             angle = np.random.randint(0, 180)
             cv2.ellipse(mask, center, axes, angle, 0, 360, 255, -1)
 
@@ -162,25 +164,31 @@ class InpaintingDataset:
         h, w = image.shape[:2]
         mask = np.zeros((h, w), dtype=np.uint8)
 
-        # Create 2-4 brush strokes
         n_strokes = np.random.randint(2, 5)
 
         for _ in range(n_strokes):
-            # Create control points for Bezier curve
-            points = np.array(
-                [
-                    [np.random.randint(0, w), np.random.randint(0, h)],
-                    [np.random.randint(0, w), np.random.randint(0, h)],
-                    [np.random.randint(0, w), np.random.randint(0, h)],
-                ]
-            )
+            # Generate better-spaced control points
+            x_start = np.random.randint(w // 4, 3 * w // 4)
+            y_start = np.random.randint(h // 4, 3 * h // 4)
+
+            # Ensure second point is some distance away
+            x_mid = x_start + np.random.randint(-w // 3, w // 3)
+            y_mid = y_start + np.random.randint(-h // 3, h // 3)
+
+            # Ensure end point creates a meaningful curve
+            x_end = x_mid + np.random.randint(-w // 3, w // 3)
+            y_end = y_mid + np.random.randint(-h // 3, h // 3)
+
+            points = np.array([[x_start, y_start], [x_mid, y_mid], [x_end, y_end]])
+
+            # Clip points to ensure they're within image bounds
+            points = np.clip(points, 0, [w - 1, h - 1])
 
             # Generate points along the curve
             t = np.linspace(0, 1, 100)
             curve_points = []
 
             for t_val in t:
-                # Quadratic Bezier curve
                 point = (
                     (1 - t_val) ** 2 * points[0]
                     + 2 * (1 - t_val) * t_val * points[1]
@@ -188,9 +196,9 @@ class InpaintingDataset:
                 ).astype(np.int32)
                 curve_points.append(point)
 
-            # Draw the curve with varying thickness
+            # Draw the curve with larger thickness variation
             for i in range(len(curve_points) - 1):
-                thickness = np.random.randint(5, 15)
+                thickness = np.random.randint(w // 16, w // 8)  # Relative to image size
                 pt1 = tuple(curve_points[i])
                 pt2 = tuple(curve_points[i + 1])
                 cv2.line(mask, pt1, pt2, 255, thickness)
