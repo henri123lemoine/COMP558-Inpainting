@@ -6,7 +6,7 @@ from loguru import logger
 
 from src.algorithms.base import InpaintingAlgorithm
 from src.experiments.base import InpaintingExperiment
-from src.utils.visualization import plot_multiple_results
+from src.experiments.utils.visualization import plot_multiple_results
 
 
 class ComparisonExperiment(InpaintingExperiment):

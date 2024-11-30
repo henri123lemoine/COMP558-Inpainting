@@ -8,8 +8,8 @@ from scipy.stats import wasserstein_distance
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
 from src.algorithms.base import InpaintingAlgorithm
+from src.experiments.utils.visualization import plot_inpainting_result
 from src.settings import DATA_PATH, DATASETS_PATH
-from src.utils.visualization import plot_inpainting_result
 
 
 @dataclass
