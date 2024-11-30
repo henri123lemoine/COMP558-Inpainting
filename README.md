@@ -34,7 +34,7 @@ To specify a specific experiment, run `uv run main.py --experiment <experiment_n
 
 ### Textures
 
-`https://www2.eecs.berkeley.edu/Research/Projects/CS/vision/papers/efros-iccv99.pdf` (see `texture_synthesis.py`)
+`https://www2.eecs.berkeley.edu/Research/Projects/CS/vision/papers/efros-iccv99.pdf` (see `efros_leung.py`)
 `https://graphics.stanford.edu/papers/texture-synthesis-sig00/texture.pdf`
 
 ### Structures

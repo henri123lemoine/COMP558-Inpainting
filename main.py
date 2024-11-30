@@ -2,9 +2,9 @@ import argparse
 
 from loguru import logger
 
+from src.algorithms.classical.efros_leung import EfrosLeungInpainting
 from src.algorithms.classical.navier_stokes import NavierStokesInpainting
 from src.algorithms.classical.patch_match import PatchMatchInpainting
-from src.algorithms.classical.texture_synthesis import EfrosLeungInpainting
 from src.experiments.comparison import ComparisonExperiment
 from src.utils.logging import setup_logger
 
@@ -53,7 +53,7 @@ def run_experiments(args: argparse.Namespace) -> None:
             name="classical_methods_comparison", algorithms=algorithms
         )
 
-    experiment.run()
+    experiment.run(True)
     logger.info("All experiments completed")
 
 
