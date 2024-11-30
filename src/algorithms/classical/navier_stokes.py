@@ -4,6 +4,7 @@ import numpy as np
 from loguru import logger
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import spsolve
+from tqdm import tqdm
 
 from src.algorithms.base import Image, InpaintingAlgorithm, Mask
 
@@ -47,11 +48,11 @@ class NavierStokesInpainting(InpaintingAlgorithm):
         smoothness = self.compute_laplacian(image)
         v_x, v_y = self.compute_gradients(image)
 
-        for iteration in range(self.params.max_iter):
+        for iteration in tqdm(range(self.params.max_iter), desc="Processing image", ncols=80):
             smoothness_x, smoothness_y = self.compute_gradients(smoothness)
             grad_smoothness_mag = np.sqrt(smoothness_x**2 + smoothness_y**2)
             g = perona_malik(grad_smoothness_mag, self.params.K)
-            diffusion = self.compute_laplacian(g * smoothness)  # check
+            diffusion = self.compute_laplacian(g * smoothness)
 
             smoothness_new = smoothness + self.params.dt * (
                 -v_x * smoothness_x - v_y * smoothness_y + self.params.nu * diffusion
@@ -99,12 +100,9 @@ class NavierStokesInpainting(InpaintingAlgorithm):
             v_x, v_y = self.compute_gradients(image)
 
             # Convergence check
-            if iteration % 10 == 0 or iteration == self.params.max_iter - 1:
-                change = np.linalg.norm(smoothness_new - smoothness)
-                logger.info(f"Iteration {iteration + 1}/{self.params.max_iter}, Change: {change}")
-                if change < 1e-6:
-                    logger.info(f"Converged after {iteration + 1} iterations.")
-                    break
+            change = np.linalg.norm(smoothness_new - smoothness)
+            if change < 1e-6:
+                break
 
         return image
 
