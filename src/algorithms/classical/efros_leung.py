@@ -87,8 +87,8 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
             y - half_window : y + half_window + 1, x - half_window : x + half_window + 1
         ]
 
-        # Valid pixels are those that are already filled (mask == 0)
-        validity_mask = mask_region == 0
+        # Valid pixels are those that don't need inpainting (mask != 1)
+        validity_mask = mask_region < 0.5
 
         return neighborhood, validity_mask
 
@@ -153,13 +153,7 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
 
         return best_error, best_pos
 
-    def inpaint(
-        self,
-        image: np.ndarray,
-        mask: np.ndarray,
-        max_steps: int = None,
-        **kwargs,
-    ) -> np.ndarray:
+    def inpaint(self, image: np.ndarray, mask: np.ndarray, max_steps: int = None) -> np.ndarray:
         """Inpaint the masked region using texture synthesis.
 
         Args:
@@ -173,12 +167,20 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         if len(image.shape) != 2:
             raise ValueError("Only grayscale images are supported")
 
+        # Normalize mask to binary 0/1
+        mask = (mask > 0.5).astype(np.float32)
+
+        # Validate input
+        if np.all(mask == 0):
+            logger.warning("Empty mask, nothing to inpaint")
+            return image
+
         # Make copies to work with
         result = image.copy()
         remaining_mask = mask.copy()
 
         # Get total number of pixels to fill
-        n_pixels = np.sum(mask > 0)
+        n_pixels = int(np.sum(mask > 0.5))  # Cast to int for tqdm
         if max_steps is None:
             max_steps = n_pixels
 
