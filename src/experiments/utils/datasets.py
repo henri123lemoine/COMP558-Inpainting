@@ -143,65 +143,135 @@ class InpaintingDataset:
         return mask
 
     def _create_random_mask(self, image: np.ndarray) -> np.ndarray:
-        """Create random elliptical masks."""
+        """Create random elliptical masks.
+
+        Ensures masks cover between 10-40% of the image area with reasonable distribution.
+        """
         h, w = image.shape[:2]
         mask = np.zeros((h, w), dtype=np.uint8)
 
-        # Add 3-6 random ellipses
-        n_holes = np.random.randint(3, 7)
+        # Target total coverage between 10-40%
+        target_coverage = np.random.uniform(0.15, 0.35)  # Increased minimum
+        total_area = h * w
+        current_coverage = 0
+
+        # Add 3-5 random ellipses for better coverage
+        n_holes = np.random.randint(3, 6)
+        max_attempts = 30  # More attempts to achieve target coverage
+
         for _ in range(n_holes):
-            # Generate center away from edges
-            center = (np.random.randint(w // 4, 3 * w // 4), np.random.randint(h // 4, 3 * h // 4))
-            # Make axes relative to image size
-            axes = (np.random.randint(w // 8, w // 4), np.random.randint(h // 8, h // 4))
-            angle = np.random.randint(0, 180)
-            cv2.ellipse(mask, center, axes, angle, 0, 360, 255, -1)
+            attempts = 0
+            while attempts < max_attempts:
+                # Generate center with padding from edges
+                pad = max(w, h) // 8
+                center = (np.random.randint(pad, w - pad), np.random.randint(pad, h - pad))
+
+                # Make axes relative to image size but not too small
+                max_axis = min(w, h) // 4  # Increased maximum size
+                min_axis = max_axis // 3  # Ensure minimum size
+                axes = (
+                    np.random.randint(min_axis, max_axis),
+                    np.random.randint(min_axis, max_axis),
+                )
+
+                # Create temporary mask to test coverage
+                temp_mask = mask.copy()
+                angle = np.random.randint(0, 180)
+                cv2.ellipse(temp_mask, center, axes, angle, 0, 360, 255, -1)
+
+                # Calculate new coverage
+                new_coverage = np.sum(temp_mask > 0) / total_area
+
+                # Accept if within reasonable bounds
+                if new_coverage <= target_coverage:
+                    mask = temp_mask
+                    current_coverage = new_coverage
+                    break
+
+                attempts += 1
+
+            if current_coverage >= target_coverage:
+                break
 
         return mask
 
     def _create_brush_mask(self, image: np.ndarray) -> np.ndarray:
-        """Create brush-stroke like mask using Bezier curves."""
+        """Create brush-stroke like mask using Bezier curves.
+
+        Ensures strokes are reasonably sized and cover 15-35% of the image.
+        """
         h, w = image.shape[:2]
         mask = np.zeros((h, w), dtype=np.uint8)
 
-        n_strokes = np.random.randint(2, 5)
+        total_area = h * w
+        target_coverage = np.random.uniform(0.2, 0.4)  # Increased coverage targets
+        current_coverage = 0
+
+        n_strokes = np.random.randint(3, 5)  # More strokes
+        max_attempts = 25  # More attempts to achieve coverage
 
         for _ in range(n_strokes):
-            # Generate better-spaced control points
-            x_start = np.random.randint(w // 4, 3 * w // 4)
-            y_start = np.random.randint(h // 4, 3 * h // 4)
+            attempts = 0
+            while attempts < max_attempts and current_coverage < target_coverage:
+                # Create temporary mask for testing
+                temp_mask = mask.copy()
 
-            # Ensure second point is some distance away
-            x_mid = x_start + np.random.randint(-w // 3, w // 3)
-            y_mid = y_start + np.random.randint(-h // 3, h // 3)
+                # Generate better-spaced control points
+                x_start = np.random.randint(w // 4, 3 * w // 4)
+                y_start = np.random.randint(h // 4, 3 * h // 4)
 
-            # Ensure end point creates a meaningful curve
-            x_end = x_mid + np.random.randint(-w // 3, w // 3)
-            y_end = y_mid + np.random.randint(-h // 3, h // 3)
+                # Ensure manageable stroke length even for small images
+                max_offset = max(2, min(w, h) // 4)  # At least 2 pixels
 
-            points = np.array([[x_start, y_start], [x_mid, y_mid], [x_end, y_end]])
+                # Ensure points stay within image bounds even with tiny images
+                x_mid = x_start + np.random.randint(-max_offset, max_offset + 1)
+                y_mid = y_start + np.random.randint(-max_offset, max_offset + 1)
 
-            # Clip points to ensure they're within image bounds
-            points = np.clip(points, 0, [w - 1, h - 1])
+                x_end = x_mid + np.random.randint(-max_offset, max_offset + 1)
+                y_end = y_mid + np.random.randint(-max_offset, max_offset + 1)
 
-            # Generate points along the curve
-            t = np.linspace(0, 1, 100)
-            curve_points = []
+                points = np.array([[x_start, y_start], [x_mid, y_mid], [x_end, y_end]])
+                points = np.clip(points, 0, [w - 1, h - 1])
 
-            for t_val in t:
-                point = (
-                    (1 - t_val) ** 2 * points[0]
-                    + 2 * (1 - t_val) * t_val * points[1]
-                    + t_val**2 * points[2]
-                ).astype(np.int32)
-                curve_points.append(point)
+                # Generate points along the curve
+                t = np.linspace(0, 1, 50)  # Fewer points for more controlled strokes
+                curve_points = []
 
-            # Draw the curve with larger thickness variation
-            for i in range(len(curve_points) - 1):
-                thickness = np.random.randint(w // 16, w // 8)  # Relative to image size
-                pt1 = tuple(curve_points[i])
-                pt2 = tuple(curve_points[i + 1])
-                cv2.line(mask, pt1, pt2, 255, thickness)
+                for t_val in t:
+                    point = (
+                        (1 - t_val) ** 2 * points[0]
+                        + 2 * (1 - t_val) * t_val * points[1]
+                        + t_val**2 * points[2]
+                    ).astype(np.int32)
+                    curve_points.append(point)
+
+                # Scale thickness relative to image size but with minimum and maximum bounds
+                min_thickness = max(
+                    2, min(w // 16, h // 16)
+                )  # At least 2 pixels, at most 1/16th of size
+                max_thickness = max(
+                    min_thickness + 1, min(w // 8, h // 8)
+                )  # At least 1 more than min, at most 1/8th
+                thickness = np.random.randint(min_thickness, max_thickness)
+
+                # Ensure we don't get zero-sized or invalid strokes
+                if max_thickness <= min_thickness:
+                    thickness = min_thickness
+
+                for i in range(len(curve_points) - 1):
+                    pt1 = tuple(curve_points[i])
+                    pt2 = tuple(curve_points[i + 1])
+                    cv2.line(temp_mask, pt1, pt2, 255, thickness)
+
+                # Check coverage
+                new_coverage = np.sum(temp_mask > 0) / total_area
+
+                if new_coverage <= target_coverage:
+                    mask = temp_mask
+                    current_coverage = new_coverage
+                    break
+
+                attempts += 1
 
         return mask
 
@@ -395,3 +465,76 @@ if __name__ == "__main__":
                 plt.close(fig)
 
     logger.info("Generated and saved example visualizations to data/dataset_examples/")
+
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+
+    def validate_mask_coverage(
+        mask: np.ndarray, name: str, min_coverage: float = 0.05, max_coverage: float = 0.5
+    ) -> None:
+        """Validate mask coverage and distribution."""
+        coverage = np.mean(mask > 0)
+        logger.info(f"{name} mask coverage: {coverage:.1%}")
+
+        if coverage < min_coverage:
+            raise ValueError(f"{name} mask coverage too low: {coverage:.1%}")
+        if coverage > max_coverage:
+            raise ValueError(f"{name} mask coverage too high: {coverage:.1%}")
+
+        # Check for connectivity - masks shouldn't be too fragmented
+        if name != "random":  # Skip for random masks which are intentionally separate
+            from scipy import ndimage
+
+            labeled, num_features = ndimage.label(mask)
+            if num_features > 5:
+                logger.warning(
+                    f"{name} mask might be too fragmented: {num_features} separate regions"
+                )
+
+    def visualize_mask_distribution(
+        dataset: InpaintingDataset, size: int = 128, num_samples: int = 10
+    ) -> None:
+        """Generate and visualize multiple masks to check distribution."""
+        fig, axes = plt.subplots(3, num_samples, figsize=(2 * num_samples, 6))
+        mask_types = ["random", "brush", "center"]
+
+        coverage_stats = {mask_type: [] for mask_type in mask_types}
+
+        for i in range(num_samples):
+            img = np.zeros((size, size), dtype=np.uint8)
+
+            for j, mask_type in enumerate(mask_types):
+                mask = dataset._create_mask(img, mask_type)
+                coverage = np.mean(mask > 0)
+                coverage_stats[mask_type].append(coverage)
+
+                axes[j, i].imshow(mask, cmap="gray")
+                axes[j, i].axis("off")
+                if i == 0:
+                    axes[j, i].set_ylabel(mask_type)
+
+        plt.tight_layout()
+
+        # Print statistics
+        for mask_type in mask_types:
+            coverages = coverage_stats[mask_type]
+            logger.info(f"\n{mask_type} mask statistics:")
+            logger.info(f"Mean coverage: {np.mean(coverages):.1%}")
+            logger.info(f"Std coverage: {np.std(coverages):.1%}")
+            logger.info(f"Min coverage: {np.min(coverages):.1%}")
+            logger.info(f"Max coverage: {np.max(coverages):.1%}")
+
+    # Run validation
+    dataset = InpaintingDataset(Path("data/test_masks"))
+    size = 16
+    test_image = np.zeros((size, size), dtype=np.uint8)
+
+    # Test individual masks
+    for mask_type in ["random", "brush", "center"]:
+        mask = dataset._create_mask(test_image, mask_type)
+        validate_mask_coverage(mask, mask_type)
+
+    # Visualize distribution
+    visualize_mask_distribution(dataset, size=size)
+    plt.show()
