@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 
 import numpy as np
-from loguru import logger
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import spsolve
 from tqdm import tqdm
