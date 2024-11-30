@@ -113,7 +113,7 @@ class InpaintingBenchmark:
                         norm_image = case_data["image"].astype(np.float32) / 255.0
                         norm_mask = mask.astype(np.float32) / 255.0
                         result = algorithm.inpaint(norm_image, norm_mask)
-                        result = algorithm.inpaint(image, mask)
+                        result = (result * 255).astype(np.uint8)
                         exec_time = time.time() - start_time
 
                         # Compute metrics
@@ -288,21 +288,22 @@ class InpaintingBenchmark:
 
 
 if __name__ == "__main__":
-    from src.algorithms.classical import (  # NavierStokesInpainting,
+    from src.algorithms.classical import (
         EfrosLeungInpainting,
+        NavierStokesInpainting,
         PatchMatchInpainting,
     )
 
     algorithms = [
-        # NavierStokesInpainting(),
+        NavierStokesInpainting(),
         EfrosLeungInpainting(),
         PatchMatchInpainting(),
     ]
 
     config = BenchmarkConfig(
-        synthetic_size=16,  # 128
-        n_real_images=3,  # 5
-        real_size=16,  # 128
+        synthetic_size=128,
+        n_real_images=3,
+        real_size=128,
         save_individual=True,
         save_comparisons=True,
         save_heatmaps=True,
