@@ -119,7 +119,9 @@ class NavierStokesInpainting(InpaintingAlgorithm):
         L[1:-1, 1:-1] = (image[1:-1, :-2] + image[1:-1, 2:] + image[:-2, 1:-1] + image[2:, 1:-1] - 4 * image[1:-1, 1:-1])
         return L
     
-
+    def perona_malik(g, K=2):
+        return 1 / (1 + (g / K) ** 2)
+    
     
 
 
