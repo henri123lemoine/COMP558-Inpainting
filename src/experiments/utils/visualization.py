@@ -3,46 +3,8 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
-import seaborn as sns
 from loguru import logger
 from matplotlib.gridspec import GridSpec
-
-
-class ResultsVisualizer:
-    """Creates publication-quality visualizations of inpainting results."""
-
-    def __init__(self, output_dir: Path):
-        self.output_dir = output_dir
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-
-    def plot_metric_comparison(self, results: pd.DataFrame) -> None:
-        """Create comparison plots for each metric."""
-        # Set style for publication-quality figures
-        plt.style.use("seaborn")
-
-        metrics = ["PSNR", "SSIM", "EMD", "Time (s)"]
-        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-
-        for ax, metric in zip(axes.flat, metrics):
-            sns.boxplot(data=results, x="Algorithm", y=metric, ax=ax)
-            ax.set_title(f"{metric} Comparison")
-
-        plt.tight_layout()
-        plt.savefig(self.output_dir / "metric_comparison.pdf", bbox_inches="tight")
-
-    def create_latex_tables(self, results: pd.DataFrame) -> str:
-        """Generate LaTeX tables for the paper."""
-        # Group by algorithm and compute mean/std
-        summary = results.groupby("Algorithm").agg(["mean", "std"])
-
-        latex_table = summary.to_latex(
-            float_format=lambda x: "%.3f" % x,
-            caption="Comparison of Inpainting Methods",
-            label="tab:inpainting_comparison",
-        )
-
-        return latex_table
 
 
 def plot_inpainting_result(
