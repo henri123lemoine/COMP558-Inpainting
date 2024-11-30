@@ -43,7 +43,7 @@ class NavierStokesInpainting(InpaintingAlgorithm):
         if image.max() > 1.0:
             image /= 255.0
 
-        height, width = image.shape()
+        height, width = image.shape
         smoothness = self.compute_laplacian(image)
         v_x, v_y = self.compute_gradients(image)
 
@@ -128,14 +128,7 @@ class NavierStokesInpainting(InpaintingAlgorithm):
             - 4 * image[1:-1, 1:-1]
         )
         return L
-        
-    def perona_malik(g, K=2):
-        return 1 / (1 + (g / K) ** 2)
-    
-
-    
 
 
-
-    
-
+def perona_malik(g, K=2):
+    return 1 / (1 + (g / K) ** 2)
