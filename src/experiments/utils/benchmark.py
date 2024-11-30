@@ -1,10 +1,10 @@
-# ruff: noqa: E402
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
 from loguru import logger
@@ -110,6 +110,9 @@ class InpaintingBenchmark:
                     # Run algorithm and measure time
                     try:
                         start_time = time.time()
+                        norm_image = case_data["image"].astype(np.float32) / 255.0
+                        norm_mask = mask.astype(np.float32) / 255.0
+                        result = algorithm.inpaint(norm_image, norm_mask)
                         result = algorithm.inpaint(image, mask)
                         exec_time = time.time() - start_time
 
@@ -285,19 +288,25 @@ class InpaintingBenchmark:
 
 
 if __name__ == "__main__":
-    from src.algorithms.classical import (
+    from src.algorithms.classical import (  # NavierStokesInpainting,
         EfrosLeungInpainting,
-        NavierStokesInpainting,
         PatchMatchInpainting,
     )
 
     algorithms = [
-        NavierStokesInpainting(),
-        EfrosLeungInpainting(window_size=11, error_threshold=0.1),
-        PatchMatchInpainting(patch_size=7, num_iterations=10),
+        # NavierStokesInpainting(),
+        EfrosLeungInpainting(),
+        PatchMatchInpainting(),
     ]
 
-    config = BenchmarkConfig(synthetic_size=128, n_real_images=10, save_heatmaps=True)
+    config = BenchmarkConfig(
+        synthetic_size=16,  # 128
+        n_real_images=3,  # 5
+        real_size=16,  # 128
+        save_individual=False,  # True
+        save_comparisons=False,  # True
+        save_heatmaps=False,  # True
+    )
 
     benchmark = InpaintingBenchmark(algorithms=algorithms, config=config)
     results_df = benchmark.run()
