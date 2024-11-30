@@ -27,9 +27,9 @@ class NavierStokesInpainting(InpaintingAlgorithm):
     `https://www.math.ucla.edu/~bertozzi/papers/cvpr01.pdf`
     """
 
-    def __init__(self):
+    def __init__(self, max_iter: int = 100, dt: float = 0.05, nu: float = 0.1, K: float = 2.0):
         super().__init__(name="Navier-Stokes")
-        self.params = NavierStokesParams()
+        self.params = NavierStokesParams(max_iter=max_iter, dt=dt, nu=nu, K=K)
 
     def inpaint(self, image: Image, mask: Mask) -> Image:
         """Perform inpainting using the Navier-Stokes algorithm."""
@@ -50,7 +50,7 @@ class NavierStokesInpainting(InpaintingAlgorithm):
         for iteration in tqdm(range(self.params.max_iter), desc="Processing image", ncols=80):
             smoothness_x, smoothness_y = self.compute_gradients(smoothness)
             grad_smoothness_mag = np.sqrt(smoothness_x**2 + smoothness_y**2)
-            g = perona_malik(grad_smoothness_mag, self.params.K)
+            g = self.perona_malik(grad_smoothness_mag, self.params.K)
             diffusion = self.compute_laplacian(g * smoothness)
 
             smoothness_new = smoothness + self.params.dt * (
@@ -126,6 +126,5 @@ class NavierStokesInpainting(InpaintingAlgorithm):
         )
         return L
 
-
-def perona_malik(g, K=2):
-    return 1 / (1 + (g / K) ** 2)
+    def perona_malik(self, g, K=2):
+        return 1 / (1 + (g / K) ** 2)

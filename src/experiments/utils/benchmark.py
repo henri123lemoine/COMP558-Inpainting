@@ -300,10 +300,10 @@ if __name__ == "__main__":
         PatchMatchInpainting(),
     ]
 
-    image_size = 32
+    image_size = 128
     config = BenchmarkConfig(
         synthetic_size=image_size,
-        n_real_images=3,
+        n_real_images=8,
         real_size=image_size,
         save_individual=True,
         save_comparisons=True,
