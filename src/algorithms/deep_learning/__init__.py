@@ -1,3 +1,3 @@
-from .stable_diffusion import StableDiffusionInpainting
+from .dl import DeepLearningInpainting
 
-__all__ = ["StableDiffusionInpainting"]
+__all__ = ["DeepLearningInpainting"]
