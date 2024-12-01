@@ -10,10 +10,18 @@ from src.algorithms.base import Image, InpaintingAlgorithm, Mask
 
 @dataclass(frozen=True)
 class NavierStokesParams:
-    max_iter: int = 100  # Maximum iterations
-    dt: float = 0.05  # Time step
-    nu: float = 0.1  # Diffusion coefficient
-    K: float = 2.0  # Perona-Malik parameter
+    """Parameters for Navier-Stokes inpainting algorithm."""
+
+    max_iter: int = 300
+    dt: float = 0.1
+    nu: float = 0.2
+    K: float = 1.5
+    tol: float = 1e-6
+
+    def __post_init__(self) -> None:
+        for field_name, value in self.__dict__.items():
+            if not isinstance(value, (int, float)) or value <= 0:
+                raise ValueError(f"{field_name} must be positive")
 
 
 class NavierStokesInpainting(InpaintingAlgorithm):
@@ -27,9 +35,16 @@ class NavierStokesInpainting(InpaintingAlgorithm):
     `https://www.math.ucla.edu/~bertozzi/papers/cvpr01.pdf`
     """
 
-    def __init__(self, max_iter: int = 300, dt: float = 0.1, nu: float = 0.2, K: float = 1.5):
+    def __init__(
+        self,
+        max_iter: int = 2000,
+        dt: float = 0.01,
+        nu: float = 0.05,
+        K: float = 0.7,
+        tol: float = 1e-8,
+    ):
         super().__init__(name="Navier-Stokes")
-        self.params = NavierStokesParams(max_iter=max_iter, dt=dt, nu=nu, K=K)
+        self.params = NavierStokesParams(max_iter=max_iter, dt=dt, nu=nu, K=K, tol=tol)
 
     def inpaint(self, image: Image, mask: Mask) -> Image:
         """Perform inpainting using the Navier-Stokes algorithm."""
@@ -47,7 +62,7 @@ class NavierStokesInpainting(InpaintingAlgorithm):
         smoothness = self.compute_laplacian(image)
         v_x, v_y = self.compute_gradients(image)
 
-        for iteration in tqdm(range(self.params.max_iter), desc="Processing image", ncols=80):
+        for _ in tqdm(range(self.params.max_iter), desc="Processing", ncols=50):
             smoothness_x, smoothness_y = self.compute_gradients(smoothness)
             grad_smoothness_mag = np.sqrt(smoothness_x**2 + smoothness_y**2)
             g = self.perona_malik(grad_smoothness_mag, self.params.K)
@@ -100,7 +115,7 @@ class NavierStokesInpainting(InpaintingAlgorithm):
 
             # Convergence check
             change = np.linalg.norm(smoothness_new - smoothness)
-            if change < 1e-6:
+            if change < self.params.tol:
                 break
 
         return image
@@ -128,3 +143,37 @@ class NavierStokesInpainting(InpaintingAlgorithm):
 
     def perona_malik(self, g, K=2):
         return 1 / (1 + (g / K) ** 2)
+
+
+if __name__ == "__main__":
+    import cv2
+    import matplotlib.pyplot as plt
+
+    inpainter = NavierStokesInpainting()
+
+    image = cv2.imread("data/datasets/real/real_1227/image.png", cv2.IMREAD_GRAYSCALE)
+    mask = cv2.imread("data/datasets/real/real_1227/mask_brush.png", cv2.IMREAD_GRAYSCALE)
+    print(image.shape, mask.shape)
+
+    plt.imshow(image, cmap="gray")
+
+    image = image.astype(np.float32) / 255.0
+    mask = (mask > 0.5).astype(np.float32)
+    result = inpainter.inpaint(image, mask)
+
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+
+    ax1.imshow(image, cmap="gray")
+    ax1.set_title("Original")
+    ax1.axis("off")
+
+    ax2.imshow(mask, cmap="gray")
+    ax2.set_title("Mask")
+    ax2.axis("off")
+
+    ax3.imshow(result, cmap="gray")
+    ax3.set_title("Result")
+    ax3.axis("off")
+
+    plt.tight_layout()
+    plt.show()
