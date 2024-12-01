@@ -10,18 +10,10 @@ from src.algorithms.base import Image, InpaintingAlgorithm, Mask
 
 @dataclass(frozen=True)
 class NavierStokesParams:
-    """Parameters for Navier-Stokes inpainting algorithm."""
-
     max_iter: int = 300
-    dt: float = 0.1
-    nu: float = 0.2
-    K: float = 1.5
-    tol: float = 1e-6
-
-    def __post_init__(self) -> None:
-        for field_name, value in self.__dict__.items():
-            if not isinstance(value, (int, float)) or value <= 0:
-                raise ValueError(f"{field_name} must be positive")
+    dt: float = 0.05
+    nu: float = 0.1
+    K: float = 2.0
 
 
 class NavierStokesInpainting(InpaintingAlgorithm):
@@ -35,33 +27,34 @@ class NavierStokesInpainting(InpaintingAlgorithm):
     `https://www.math.ucla.edu/~bertozzi/papers/cvpr01.pdf`
     """
 
-    def __init__(
-        self,
-        max_iter: int = 2000,
-        dt: float = 0.01,
-        nu: float = 0.05,
-        K: float = 0.7,
-        tol: float = 1e-8,
-    ):
+    def __init__(self, max_iter: int = 300, dt: float = 0.05, nu: float = 0.1, K: float = 2.0):
         super().__init__(name="Navier-Stokes")
-        self.params = NavierStokesParams(max_iter=max_iter, dt=dt, nu=nu, K=K, tol=tol)
+        self.params = NavierStokesParams(
+            max_iter=max_iter,
+            dt=dt,
+            nu=nu,
+            K=K,
+        )
 
     def _inpaint(self, image: Image, mask: Mask) -> Image:
         """Perform inpainting using the Navier-Stokes algorithm."""
+        if image.ndim != 2:
+            raise ValueError("Navier-Stokes inpainting requires a grayscale image.")
+
         height, width = image.shape
         smoothness = self.compute_laplacian(image)
         v_x, v_y = self.compute_gradients(image)
 
-        for _ in tqdm(range(self.params.max_iter), desc="Navier-Stokes"):
+        for iteration in tqdm(range(self.params.max_iter), "Navier-Stokes"):
             smoothness_x, smoothness_y = self.compute_gradients(smoothness)
             grad_smoothness_mag = np.sqrt(smoothness_x**2 + smoothness_y**2)
             g = self.perona_malik(grad_smoothness_mag, self.params.K)
-            diffusion = self.compute_laplacian(g * smoothness)
+            diffusion = self.compute_laplacian(g * smoothness)  # check
 
             smoothness_new = smoothness + self.params.dt * (
                 -v_x * smoothness_x - v_y * smoothness_y + self.params.nu * diffusion
             )
-            smoothness_new[~mask] = self.compute_laplacian(image)[~mask]
+            smoothness_new[mask == 0] = self.compute_laplacian(image)[mask == 0]
 
             b = smoothness_new.flatten()
             data, row, col = [], [], []
@@ -104,9 +97,10 @@ class NavierStokesInpainting(InpaintingAlgorithm):
             v_x, v_y = self.compute_gradients(image)
 
             # Convergence check
-            change = np.linalg.norm(smoothness_new - smoothness)
-            if change < self.params.tol:
-                break
+            if iteration % 10 == 0 or iteration == self.params.max_iter - 1:
+                change = np.linalg.norm(smoothness_new - smoothness)
+                if change < 1e-6:
+                    break
 
         return image
 
@@ -136,5 +130,5 @@ class NavierStokesInpainting(InpaintingAlgorithm):
 
 
 if __name__ == "__main__":
-    inpainter = NavierStokesInpainting()
-    inpainter.run_example()
+    inpainter = NavierStokesInpainting(max_iter=300)
+    inpainter.run_example(scale_factor=0.5)
