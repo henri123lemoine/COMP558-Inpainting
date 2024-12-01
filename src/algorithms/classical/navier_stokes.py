@@ -46,18 +46,8 @@ class NavierStokesInpainting(InpaintingAlgorithm):
         super().__init__(name="Navier-Stokes")
         self.params = NavierStokesParams(max_iter=max_iter, dt=dt, nu=nu, K=K, tol=tol)
 
-    def inpaint(self, image: Image, mask: Mask) -> Image:
+    def _inpaint(self, image: Image, mask: Mask) -> Image:
         """Perform inpainting using the Navier-Stokes algorithm."""
-
-        if image.ndim != 2:
-            raise ValueError("Navier-Stokes inpainting requires a grayscale image.")
-        if image.shape != mask.shape:
-            raise ValueError("Image and mask must have the same shape.")
-
-        image = image.astype(np.float64)
-        if image.max() > 1.0:
-            image /= 255.0
-
         height, width = image.shape
         smoothness = self.compute_laplacian(image)
         v_x, v_y = self.compute_gradients(image)
@@ -71,7 +61,7 @@ class NavierStokesInpainting(InpaintingAlgorithm):
             smoothness_new = smoothness + self.params.dt * (
                 -v_x * smoothness_x - v_y * smoothness_y + self.params.nu * diffusion
             )
-            smoothness_new[mask == 0] = self.compute_laplacian(image)[mask == 0]
+            smoothness_new[~mask] = self.compute_laplacian(image)[~mask]
 
             b = smoothness_new.flatten()
             data, row, col = [], [], []
@@ -146,34 +136,5 @@ class NavierStokesInpainting(InpaintingAlgorithm):
 
 
 if __name__ == "__main__":
-    import cv2
-    import matplotlib.pyplot as plt
-
     inpainter = NavierStokesInpainting()
-
-    image = cv2.imread("data/datasets/real/real_1227/image.png", cv2.IMREAD_GRAYSCALE)
-    mask = cv2.imread("data/datasets/real/real_1227/mask_brush.png", cv2.IMREAD_GRAYSCALE)
-    print(image.shape, mask.shape)
-
-    plt.imshow(image, cmap="gray")
-
-    image = image.astype(np.float32) / 255.0
-    mask = (mask > 0.5).astype(np.float32)
-    result = inpainter.inpaint(image, mask)
-
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
-
-    ax1.imshow(image, cmap="gray")
-    ax1.set_title("Original")
-    ax1.axis("off")
-
-    ax2.imshow(mask, cmap="gray")
-    ax2.set_title("Mask")
-    ax2.axis("off")
-
-    ax3.imshow(result, cmap="gray")
-    ax3.set_title("Result")
-    ax3.axis("off")
-
-    plt.tight_layout()
-    plt.show()
+    inpainter.run_example()
