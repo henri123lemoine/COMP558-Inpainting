@@ -9,6 +9,15 @@ from src.algorithms.base import InpaintingAlgorithm
 
 @dataclass(frozen=True)
 class EfrosLeungParams:
+    """
+    Parameters for the Efros-Leung texture synthesis algorithm.
+
+    window_size: Size of the neighborhood window (must be odd)
+    error_threshold: Maximum allowed error for matching
+    sigma: Standard deviation for Gaussian weighting
+    n_candidates: Number of candidate matches to randomly choose from
+    """
+
     window_size: int = 11
     error_threshold: float = 0.1
     sigma: float = 1.0
@@ -39,14 +48,6 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         search_step: int = 2,
         batch_size: int = 4,
     ):
-        """Initialize the algorithm.
-
-        Args:
-            window_size: Size of the neighborhood window (must be odd)
-            error_threshold: Maximum allowed error for matching
-            sigma: Standard deviation for Gaussian weighting
-            n_candidates: Number of candidate matches to randomly choose from
-        """
         super().__init__("EfrosLeung")
 
         self.params = EfrosLeungParams(
@@ -58,12 +59,7 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
             batch_size=batch_size,
         )
 
-        # Create Gaussian weighting kernel
         self.weights = self._create_gaussian_kernel()
-        logger.debug(
-            f"Initialized with window_size={window_size}, "
-            f"error_threshold={error_threshold}, sigma={sigma}"
-        )
 
     def _create_gaussian_kernel(self) -> np.ndarray:
         """Create a Gaussian weighting kernel for the window."""
@@ -84,18 +80,9 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         mask: np.ndarray,
         pos: tuple[int, int],
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Get the valid neighborhood around a position.
-
-        Args:
-            image: Input image
-            mask: Binary mask where 1 indicates pixels to inpaint
-            pos: (y, x) position of the center pixel
-
-        Returns:
-            Tuple of (neighborhood, validity_mask)
-        """
+        """Get the valid neighborhood around a position."""
         half_window = self.params.window_size // 2
-        y, x = pos
+        y, x = pos  # position of the center pixel
 
         # Extract neighborhood and corresponding mask
         neighborhood = image[
@@ -125,9 +112,6 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
             valid_mask: Mask indicating valid pixels in target
             image: Source image to search in
             exclude_pos: Position to exclude from search
-
-        Returns:
-            Tuple of (error, (y, x) position)
         """
         half_window = self.params.window_size // 2
         height, width = image.shape[:2]
@@ -173,30 +157,23 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         return best_error, best_pos
 
     def inpaint(self, image: np.ndarray, mask: np.ndarray, max_steps: int = None) -> np.ndarray:
-        """Inpaint the masked region using texture synthesis.
-
-        Args:
-            image: Input image
-            mask: Binary mask where 1 indicates pixels to inpaint
-            max_steps: Maximum number of pixels to fill (default: all masked pixels)
-
-        Returns:
-            Inpainted image
-        """
+        """Efros-Leung inpainting."""
         if len(image.shape) != 2:
             raise ValueError("Only grayscale images are supported")
 
         # Normalize mask to binary 0/1
         mask = (mask > 0.5).astype(np.float32)
 
-        # Validate input
         if np.all(mask == 0):
             logger.warning("Empty mask, nothing to inpaint")
             return image
+        elif np.all(mask == 1):
+            logger.warning("Full mask, nothing to inpaint")
+            return image
 
-        # Make copies to work with
         result = image.copy()
         remaining_mask = mask.copy()
+        half_window = self.params.window_size // 2
 
         # Get total number of pixels to fill
         n_pixels = int(np.sum(mask > 0.5))  # Cast to int for tqdm
@@ -205,59 +182,60 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
 
         logger.info(f"Starting inpainting of {n_pixels} pixels")
 
-        # Initialize progress bar
-        pbar = tqdm(total=min(n_pixels, max_steps), desc="Inpainting")
+        # Pre-compute list of unfilled positions
+        unfilled_positions = [
+            (y, x)
+            for y in range(half_window, image.shape[0] - half_window)
+            for x in range(half_window, image.shape[1] - half_window)
+            if remaining_mask[y, x] == 1
+        ]
 
         filled_pixels = 0
-        half_window = self.params.window_size // 2
+        total_pixels = min(n_pixels, max_steps)
 
-        while filled_pixels < max_steps:
-            # Find unfilled pixel with most filled neighbors
-            max_filled = 0
-            best_pos = None
+        with tqdm(total=total_pixels, desc="Inpainting") as pbar:
+            while filled_pixels < max_steps and unfilled_positions:
+                # Find unfilled pixel with most filled neighbors
+                max_filled = 0
+                best_pos = None
 
-            for y in range(half_window, image.shape[0] - half_window):
-                for x in range(half_window, image.shape[1] - half_window):
-                    if remaining_mask[y, x] == 1:  # If pixel needs to be filled
-                        # Count filled neighbors in window
-                        window_mask = remaining_mask[
-                            y - half_window : y + half_window + 1,
-                            x - half_window : x + half_window + 1,
-                        ]
-                        n_filled = np.sum(window_mask == 0)
+                for y, x in unfilled_positions:
+                    # Count filled neighbors in window
+                    window_mask = remaining_mask[
+                        y - half_window : y + half_window + 1,
+                        x - half_window : x + half_window + 1,
+                    ]
+                    n_filled = np.sum(window_mask == 0)
 
-                        if n_filled > max_filled:
-                            max_filled = n_filled
-                            best_pos = (y, x)
+                    if n_filled > max_filled:
+                        max_filled = n_filled
+                        best_pos = (y, x)
 
-            if best_pos is None:
-                logger.info("No more pixels to fill")
-                break
+                if best_pos is None:
+                    logger.info("No more pixels to fill")
+                    break
 
-            # Get neighborhood of selected pixel
-            neighborhood, valid_mask = self._get_neighborhood(result, remaining_mask, best_pos)
+                # Get neighborhood of selected pixel
+                neighborhood, valid_mask = self._get_neighborhood(result, remaining_mask, best_pos)
 
-            # Find best matching patch
-            _, match_pos = self._find_best_match(neighborhood, valid_mask, image, best_pos)
+                # Find best matching patch
+                _, match_pos = self._find_best_match(neighborhood, valid_mask, image, best_pos)
 
-            if match_pos is None:
-                logger.warning(f"No valid match found for position {best_pos}")
-                # Fill with average of valid neighbors as fallback
-                valid_values = neighborhood[valid_mask]
-                if len(valid_values) > 0:
-                    result[best_pos] = np.mean(valid_values)
+                if match_pos is None:
+                    logger.warning(f"No valid match found for position {best_pos}")
+                    # Fill with average of valid neighbors as fallback
+                    valid_values = neighborhood[valid_mask]
+                    result[best_pos] = np.mean(valid_values) if len(valid_values) > 0 else 0.5
                 else:
-                    result[best_pos] = 0.5  # Default to mid-gray if no valid neighbors
-            else:
-                # Copy the center pixel from the best match
-                result[best_pos] = image[match_pos]
+                    # Copy the center pixel from the best match
+                    result[best_pos] = image[match_pos]
 
-            # Mark pixel as filled
-            remaining_mask[best_pos] = 0
-            filled_pixels += 1
-            pbar.update(1)
+                # Mark pixel as filled and update tracking
+                remaining_mask[best_pos] = 0
+                filled_pixels += 1
+                unfilled_positions.remove(best_pos)
+                pbar.update(1)
 
-        pbar.close()
         logger.info(f"Completed inpainting of {filled_pixels} pixels")
         return result
 
