@@ -45,14 +45,14 @@ class PatchMatchInpainting(InpaintingAlgorithm):
     """
 
     # Constants
-    MIN_VALID_RATIO: Final[float] = 0.3  # Minimum ratio of valid pixels in patch
-    MAX_RANDOM_SAMPLES: Final[int] = 10  # Maximum random samples per position
+    MIN_VALID_RATIO: Final[float] = 0.2  # Minimum ratio of valid pixels in patch
+    MAX_RANDOM_SAMPLES: Final[int] = 25  # Maximum random samples per position
 
     def __init__(
         self,
-        patch_size: int = 9,
-        num_iterations: int = 20,
-        search_ratio: float = 0.5,
+        patch_size: int = 21,
+        num_iterations: int = 150,
+        search_ratio: float = 0.7,
         alpha: float = 0.1,
     ) -> None:
         """Initialize PatchMatch algorithm with given parameters."""
@@ -166,11 +166,7 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         # Initialize target pixels
         target_y, target_x = np.where(mask > 0)
 
-        for y, x in tqdm(
-            zip(target_y, target_x),
-            desc="Initializing NN field",
-            total=len(target_y),
-        ):
+        for y, x in zip(target_y, target_x):
             target_patch, target_valid = self._get_patch(image, mask, y, x)
 
             # Try random candidates
@@ -201,7 +197,6 @@ class PatchMatchInpainting(InpaintingAlgorithm):
             else:
                 # Fallback to closest valid pixel
                 nn_field[y, x] = [source_y[0], source_x[0]]
-                # logger.warning(f"No good match found for pixel ({y}, {x})")
 
         return nn_field
 
@@ -371,3 +366,37 @@ class PatchMatchInpainting(InpaintingAlgorithm):
 
         logger.info("PatchMatch inpainting completed")
         return result
+
+
+if __name__ == "__main__":
+    import cv2
+    import matplotlib.pyplot as plt
+
+    inpainter = PatchMatchInpainting()
+
+    image = cv2.imread("data/datasets/real/real_1227/image.png", cv2.IMREAD_GRAYSCALE)
+    mask = cv2.imread("data/datasets/real/real_1227/mask_brush.png", cv2.IMREAD_GRAYSCALE)
+    print(image.shape, mask.shape)
+
+    plt.imshow(image, cmap="gray")
+
+    image = image.astype(np.float32) / 255.0
+    mask = (mask > 0.5).astype(np.float32)
+    result = inpainter.inpaint(image, mask)
+
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+
+    ax1.imshow(image, cmap="gray")
+    ax1.set_title("Original")
+    ax1.axis("off")
+
+    ax2.imshow(mask, cmap="gray")
+    ax2.set_title("Mask")
+    ax2.axis("off")
+
+    ax3.imshow(result, cmap="gray")
+    ax3.set_title("Result")
+    ax3.axis("off")
+
+    plt.tight_layout()
+    plt.show()
