@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, TypeAlias
+from typing import TypeAlias
 
 import cv2
 import numpy as np
@@ -21,9 +21,9 @@ class InpaintingAlgorithm(ABC):
     def load_image(
         self,
         image_path: PathLike,
-        mask_path: Optional[PathLike] = None,
+        mask_path: PathLike | None = None,
         grayscale: bool = False,
-    ) -> tuple[Image, Optional[Mask]]:
+    ) -> tuple[Image, Mask | None]:
         """Load and preprocess image and optional mask.
 
         Returns:
@@ -70,7 +70,7 @@ class InpaintingAlgorithm(ABC):
         self,
         result: Image,
         output_path: PathLike,
-        original: Optional[Image] = None,
+        original: Image | None = None,
     ) -> None:
         """Save inpainting result, optionally with side-by-side comparison."""
         # Validate inputs

@@ -26,22 +26,16 @@ class InpaintingDataset:
         self.real_dir.mkdir(exist_ok=True)
 
     def generate_synthetic_dataset(
-        self, size: int = 128, force_regenerate: bool = False
+        self,
+        size: int = 128,  # Size of synthetic images (square)
+        force_regenerate: bool = False,  # If True, regenerate even if files exist
     ) -> dict[str, dict]:
-        """Generate or load synthetic test cases.
-
-        Args:
-            size: Size of synthetic images (square)
-            force_regenerate: If True, regenerate even if files exist
-
-        Returns:
-            Dictionary of test cases, each containing 'image' and 'masks'
-        """
+        """Generate or load synthetic test cases."""
         test_cases = {
             # Structure cases
             "lines": {
                 "func": self._create_line_image,
-                "masks": ["center", "random"],
+                "masks": ["center", "random", "brush"],
                 "category": "structure",
             },
             "shapes": {
@@ -51,34 +45,34 @@ class InpaintingDataset:
             },
             "curves": {
                 "func": self._create_curve_image,
-                "masks": ["random", "brush"],
+                "masks": ["center", "random", "brush"],
                 "category": "structure",
             },
             # Texture cases
             "checkerboard": {
                 "func": self._create_checker_image,
-                "masks": ["center", "random"],
+                "masks": ["center", "random", "brush"],
                 "category": "texture",
             },
             "dots": {
                 "func": self._create_dot_pattern,
-                "masks": ["center", "random"],
+                "masks": ["center", "random", "brush"],
                 "category": "texture",
             },
             "noise": {
                 "func": self._create_noise_pattern,
-                "masks": ["center", "brush"],
+                "masks": ["center", "random", "brush"],
                 "category": "texture",
             },
             # Gradient cases
             "linear_gradient": {
                 "func": self._create_linear_gradient,
-                "masks": ["center", "random"],
+                "masks": ["center", "random", "brush"],
                 "category": "gradient",
             },
             "radial_gradient": {
                 "func": self._create_radial_gradient,
-                "masks": ["center", "brush"],
+                "masks": ["center", "random", "brush"],
                 "category": "gradient",
             },
         }

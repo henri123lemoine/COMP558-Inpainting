@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
 
 import cv2
 import matplotlib.pyplot as plt
@@ -20,10 +19,10 @@ class LCMInpaintingParams:
     guidance_scale: float = 1.2  # Between 1.0 and 2.0 for LCM
     num_inference_steps: int = 4  # Between 4 and 8 for LCM
     prompt: str = ""
-    negative_prompt: Optional[str] = None
+    negative_prompt: str | None = None
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     dtype: torch.dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-    seed: Optional[int] = None
+    seed: int | None = None
 
 
 class LCMInpainting(InpaintingAlgorithm):
@@ -101,7 +100,7 @@ class LCMInpainting(InpaintingAlgorithm):
         self,
         image: Image,
         mask: Mask,
-        prompt: Optional[str] = None,
+        prompt: str | None = None,
         **kwargs,
     ) -> Image:
         original_height, original_width = image.shape[:2]

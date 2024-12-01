@@ -187,9 +187,6 @@ class ComparisonExperiment(InpaintingExperiment):
 
         # Process each test case
         for image_name, data in dataset.items():
-            logger.info(f"Processing test case: {image_name}")
-
-            # Store results for each algorithm
             results_dict = {}
 
             # Run each algorithm

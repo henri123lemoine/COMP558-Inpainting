@@ -62,7 +62,7 @@ class NavierStokesInpainting(InpaintingAlgorithm):
         smoothness = self.compute_laplacian(image)
         v_x, v_y = self.compute_gradients(image)
 
-        for _ in tqdm(range(self.params.max_iter), desc="Processing", ncols=50):
+        for _ in tqdm(range(self.params.max_iter), desc="Navier-Stokes"):
             smoothness_x, smoothness_y = self.compute_gradients(smoothness)
             grad_smoothness_mag = np.sqrt(smoothness_x**2 + smoothness_y**2)
             g = self.perona_malik(grad_smoothness_mag, self.params.K)

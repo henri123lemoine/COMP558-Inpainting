@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Final, Optional, TypeAlias
+from typing import Final, TypeAlias
 
 import numpy as np
 from loguru import logger
@@ -118,7 +118,7 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         patch2: Patch,
         valid1: PatchMask,
         valid2: PatchMask,
-        early_exit: Optional[float] = None,
+        early_exit: float | None = None,
     ) -> float:
         """Compute weighted SSD between valid regions of two patches."""
         # Only consider pixels valid in both patches

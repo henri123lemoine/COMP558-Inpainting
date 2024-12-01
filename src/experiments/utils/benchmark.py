@@ -85,18 +85,15 @@ class InpaintingBenchmark:
         """Run complete benchmark suite."""
         results = []
 
-        # Generate test cases
         synthetic_cases = self.dataset.generate_synthetic_dataset(size=self.config.synthetic_size)
         real_cases = self.dataset.load_real_dataset(
             n_images=self.config.n_real_images, size=self.config.real_size
         )
 
-        # Combine all test cases
         all_cases = {**synthetic_cases, **real_cases}
         logger.info(f"Running benchmark on {len(all_cases)} test cases")
 
-        # Process each test case
-        for case_name, case_data in tqdm(all_cases.items(), desc="Processing test cases"):
+        for case_name, case_data in tqdm(all_cases.items(), desc="Test cases"):
             category = case_data["category"]
             image = case_data["image"]
 
@@ -151,7 +148,6 @@ class InpaintingBenchmark:
                 if algorithm_results and self.config.save_comparisons:
                     self._save_comparison(case_name, mask_name, image, mask, algorithm_results)
 
-        # Convert results to DataFrame
         df = pd.DataFrame(results)
         self._generate_report(df)
 

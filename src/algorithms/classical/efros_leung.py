@@ -4,7 +4,7 @@ import numpy as np
 from loguru import logger
 from tqdm import tqdm
 
-from src.algorithms.base import InpaintingAlgorithm
+from src.algorithms.base import Image, InpaintingAlgorithm, Mask
 
 
 @dataclass(frozen=True)
@@ -76,10 +76,10 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
 
     def _get_neighborhood(
         self,
-        image: np.ndarray,
-        mask: np.ndarray,
+        image: Image,
+        mask: Mask,
         pos: tuple[int, int],
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, Mask]:
         """Get the valid neighborhood around a position."""
         half_window = self.params.window_size // 2
         y, x = pos  # position of the center pixel
@@ -100,19 +100,12 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
 
     def _find_best_match(
         self,
-        target: np.ndarray,
-        valid_mask: np.ndarray,
-        image: np.ndarray,
-        exclude_pos: tuple[int, int],
+        target: np.ndarray,  # Target neighborhood
+        valid_mask: Mask,  # Mask indicating valid pixels in target
+        image: Image,  # Source image to search in
+        exclude_pos: tuple[int, int],  # Position to exclude from search
     ) -> tuple[float, tuple[int, int]]:
-        """Find the best matching patch in the image.
-
-        Args:
-            target: Target neighborhood
-            valid_mask: Mask indicating valid pixels in target
-            image: Source image to search in
-            exclude_pos: Position to exclude from search
-        """
+        """Find the best matching patch in the image."""
         half_window = self.params.window_size // 2
         height, width = image.shape[:2]
 
@@ -193,7 +186,7 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         filled_pixels = 0
         total_pixels = min(n_pixels, max_steps)
 
-        with tqdm(total=total_pixels, desc="Inpainting") as pbar:
+        with tqdm(total=total_pixels, desc="Efros-Leung") as pbar:
             while filled_pixels < max_steps and unfilled_positions:
                 # Find unfilled pixel with most filled neighbors
                 max_filled = 0

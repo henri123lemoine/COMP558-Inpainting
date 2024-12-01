@@ -230,9 +230,6 @@ class InpaintingExperiment(ABC):
 
             # Process each image
             for image_name, data in dataset.items():
-                # logger.info(f"Processing image: {image_name}")
-
-                # Validate input
                 is_valid, error_msg = self.validate_image_mask_pair(
                     data["image"], data["mask"], image_name
                 )

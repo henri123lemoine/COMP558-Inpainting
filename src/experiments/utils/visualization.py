@@ -10,23 +10,13 @@ from matplotlib.gridspec import GridSpec
 def plot_inpainting_result(
     original: np.ndarray,
     mask: np.ndarray,
-    result: np.ndarray,
+    result: np.ndarray,  # Inpainted result
     save_path: str | Path | None = None,
     title: str | None = None,
     figsize: tuple[int, int] = (15, 5),
-    metrics: Any | None = None,
+    metrics: Any | None = None,  # Optional metrics to display
 ) -> None:
-    """Plot original, mask, and inpainted result side by side.
-
-    Args:
-        original: Original image
-        mask: Inpainting mask
-        result: Inpainted result
-        save_path: Path to save the figure
-        title: Title for the figure
-        figsize: Figure size in inches
-        metrics: Optional metrics to display
-    """
+    """Plot original, mask, and inpainted result side by side."""
     # Create figure with gridspec for flexible layout
     fig = plt.figure(figsize=figsize)
     gs = GridSpec(2, 3, height_ratios=[4, 1])
@@ -74,22 +64,18 @@ def plot_multiple_results(
     results_dict: dict[str, dict[str, np.ndarray]],
     save_path: str | Path | None = None,
     figsize: tuple[int, int] | None = None,
-    metrics_dict: dict[str, Any] | None = None,
+    metrics_dict: dict[str, Any] | None = None,  # Optional dictionary of metrics for each algorithm
 ) -> None:
     """Plot results from multiple algorithms side by side.
 
-    Args:
-        results_dict: Dictionary of results in the format:
-            {
-                'algorithm_name': {
-                    'original': original_image,
-                    'mask': mask_image,
-                    'result': result_image
-                }
+    results_dict: Dictionary of results in the format:
+        {
+            'algorithm_name': {
+                'original': original_image,
+                'mask': mask_image,
+                'result': result_image
             }
-        save_path: Path to save the figure
-        figsize: Figure size in inches
-        metrics_dict: Optional dictionary of metrics for each algorithm
+        }
     """
     n_algorithms = len(results_dict)
     if not figsize:
@@ -154,14 +140,7 @@ def _plot_histograms(
     mask: np.ndarray,
     ax: plt.Axes,
 ) -> None:
-    """Plot histogram comparison of original and inpainted regions.
-
-    Args:
-        original: Original image
-        result: Inpainted result
-        mask: Inpainting mask
-        ax: Matplotlib axes to plot on
-    """
+    """Plot histogram comparison of original and inpainted regions."""
     # Convert to appropriate format
     if original.dtype != np.uint8:
         original = (original * 255).astype(np.uint8)
@@ -199,18 +178,12 @@ def _plot_histograms(
 
 
 def plot_convergence(
-    metrics_history: list[dict[str, float]],
+    metrics_history: list[dict[str, float]],  # List of metric dictionaries for each iteration
     save_path: str | Path | None = None,
     figsize: tuple[int, int] = (10, 6),
 ) -> None:
-    """Plot convergence of metrics during inpainting.
-
-    Args:
-        metrics_history: List of metric dictionaries for each iteration
-        save_path: Path to save the figure
-        figsize: Figure size in inches
-    """
-    fig, axes = plt.subplots(2, 2, figsize=figsize)
+    """Plot convergence of metrics during inpainting."""
+    _, axes = plt.subplots(2, 2, figsize=figsize)
     axes = axes.ravel()
 
     metrics = list(metrics_history[0].keys())
@@ -237,15 +210,7 @@ def create_error_heatmap(
     save_path: str | Path | None = None,
     figsize: tuple[int, int] = (12, 4),
 ) -> None:
-    """Create a heatmap visualization of inpainting errors.
-
-    Args:
-        original: Original image
-        result: Inpainted result
-        mask: Inpainting mask
-        save_path: Path to save the figure
-        figsize: Figure size in inches
-    """
+    """Create a heatmap visualization of inpainting errors."""
     # Compute absolute error
     error = np.abs(original.astype(float) - result.astype(float))
     error_masked = np.ma.masked_where(~mask.astype(bool), error)
