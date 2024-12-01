@@ -204,58 +204,42 @@ class InpaintingAlgorithm(ABC):
 
         logger.info(f"Saved result to {output_path}")
 
-    def run_example(self):
+    def run_example(self, scale_factor=1.0):
+        """Run inpainting experiment with various options."""
         import cv2
         import matplotlib.pyplot as plt
+        import numpy as np
 
-        # Load images
+        # Read images
         image = cv2.imread("data/datasets/real/real_1227/image.png", cv2.IMREAD_GRAYSCALE)
-        mask = cv2.imread("data/datasets/real/real_1227/mask_brush.png", cv2.IMREAD_GRAYSCALE)
-        print(image.shape, mask.shape)
+        mask = cv2.imread("data/datasets/real/real_1227/mask_center.png", cv2.IMREAD_GRAYSCALE)
+
+        # Scale images if requested
+        if scale_factor != 1.0:
+            new_size = (int(image.shape[1] * scale_factor), int(image.shape[0] * scale_factor))
+            image = cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
+            mask = cv2.resize(mask, new_size, interpolation=cv2.INTER_NEAREST)
+
+        print(f"Working with image size: {image.shape}")
 
         # Convert to float and normalize
         image = image.astype(np.float32) / 255.0
         mask = (mask > 0.5).astype(np.float32)
+        image[mask > 0.5] = np.nan
 
-        # Create a copy of the image for scrambling
-        scrambled_image = image.copy()
+        result = self.inpaint(image, mask)
 
-        # Get the masked region
-        mask_region = mask > 0.5
-
-        # Option 1: Fill with random noise
-        # scrambled_image[mask_region] = np.random.uniform(0, 1, size=scrambled_image[mask_region].shape)
-
-        # Option 2: Fill with mean + noise (more realistic)
-        valid_pixels = image[~mask_region]
-        mean_value = np.mean(valid_pixels)
-        std_value = np.std(valid_pixels)
-        scrambled_image[mask_region] = np.random.normal(
-            mean_value, std_value, size=scrambled_image[mask_region].shape
-        )
-        scrambled_image = np.clip(scrambled_image, 0, 1)
-
-        # Run inpainting on the scrambled image
-        result = self.inpaint(scrambled_image, mask)
-
-        # Plotting
-        fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(20, 5))
-
+        _, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 5))
         ax1.imshow(image, cmap="gray")
         ax1.set_title("Original")
         ax1.axis("off")
-
-        ax2.imshow(scrambled_image, cmap="gray")
-        ax2.set_title("Scrambled Input")
+        ax2.imshow(mask, cmap="gray")
+        ax2.set_title("Mask")
         ax2.axis("off")
-
-        ax3.imshow(mask, cmap="gray")
-        ax3.set_title("Mask")
+        ax3.imshow(result, cmap="gray")
+        ax3.set_title("Result")
         ax3.axis("off")
-
-        ax4.imshow(result, cmap="gray")
-        ax4.set_title("Result")
-        ax4.axis("off")
-
         plt.tight_layout()
         plt.show()
+
+        return image, mask, result
