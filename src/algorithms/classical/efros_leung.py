@@ -22,8 +22,6 @@ class EfrosLeungParams:
     error_threshold: float = 0.1
     sigma: float = 1.0
     n_candidates: int = 10
-    search_step: int = 2
-    batch_size: int = 4
 
     def __post_init__(self):
         if self.window_size % 2 == 0:
@@ -45,8 +43,6 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         error_threshold: float = 0.1,
         sigma: float = 1.0,
         n_candidates: int = 10,
-        search_step: int = 2,
-        batch_size: int = 4,
     ):
         super().__init__("EfrosLeung")
 
@@ -55,8 +51,6 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
             error_threshold=error_threshold,
             sigma=sigma,
             n_candidates=n_candidates,
-            search_step=search_step,
-            batch_size=batch_size,
         )
 
         self.weights = self._create_gaussian_kernel()
