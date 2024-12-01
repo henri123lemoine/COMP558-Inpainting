@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
 
@@ -11,12 +12,114 @@ Mask: TypeAlias = np.ndarray  # Shape: (H, W), dtype: bool or uint8
 PathLike: TypeAlias = str | Path
 
 
+@dataclass
+class InpaintingInputs:
+    """Validated and preprocessed inputs for inpainting."""
+
+    image: Image  # Normalized to [0, 1]
+    mask: Mask  # Binary mask where True/1 indicates pixels to inpaint
+    original_dtype: np.dtype
+    original_range: tuple[float, float]
+
+
 class InpaintingAlgorithm(ABC):
     """Base class for all inpainting algorithms."""
 
     def __init__(self, name: str):
         self.name = name
         logger.info(f"Initialized {self.name} algorithm")
+
+    def validate_inputs(self, image: Image, mask: Mask) -> None:
+        """Validate input image and mask."""
+        if image.ndim not in [2, 3]:
+            raise ValueError(f"Image must be 2D or 3D, got shape {image.shape}")
+
+        if mask.ndim != 2:
+            raise ValueError(f"Mask must be 2D, got shape {mask.shape}")
+
+        if image.shape[:2] != mask.shape:
+            raise ValueError(
+                f"Image and mask must have same spatial dimensions. "
+                f"Got image shape {image.shape} and mask shape {mask.shape}"
+            )
+
+        if not np.issubdtype(mask.dtype, np.integer) and not mask.dtype == bool:
+            raise ValueError(f"Mask must be integer or boolean type, got {mask.dtype}")
+
+        if np.all(mask == 0):
+            logger.warning("Empty mask, nothing to inpaint")
+            return image
+
+        if np.all(mask == 1):
+            logger.warning("Full mask, nothing to inpaint")
+            return image
+
+    def preprocess_inputs(self, image: Image, mask: Mask) -> InpaintingInputs:
+        """Preprocess inputs to standardized format."""
+        # Store original properties for reconstruction
+        original_dtype = image.dtype
+        original_range = (float(image.min()), float(image.max()))
+
+        # Normalize image to [0, 1]
+        image_float = image.astype(np.float32)
+        if original_range[1] > 1.0:
+            image_float /= 255.0
+
+        # Ensure mask is binary
+        if mask.dtype == bool:
+            mask_binary = mask
+        else:
+            # Important: standardize what 1 means!
+            # Here we say 1/True means "pixels to inpaint"
+            mask_binary = (mask > 0).astype(bool)
+
+        # Validate after preprocessing
+        self.validate_inputs(image_float, mask_binary)
+
+        # Debug visualizations
+        logger.debug(f"Mask statistics: {mask_binary.sum()}/{mask_binary.size} pixels to inpaint")
+        logger.debug(
+            f"Image range after normalization: [{image_float.min():.3f}, {image_float.max():.3f}]"
+        )
+
+        return InpaintingInputs(
+            image=image_float,
+            mask=mask_binary,
+            original_dtype=original_dtype,
+            original_range=original_range,
+        )
+
+    def postprocess_output(self, output: Image, inputs: InpaintingInputs) -> Image:
+        """Convert output back to original format."""
+        # Clip to valid range
+        output_clipped = np.clip(output, 0, 1)
+
+        # Scale back to original range if needed
+        if inputs.original_range[1] > 1.0:
+            output_clipped *= 255.0
+
+        # Convert back to original dtype
+        return output_clipped.astype(inputs.original_dtype)
+
+    def inpaint(self, image: Image, mask: Mask, **kwargs) -> Image:
+        """Inpaint the masked region.
+
+        Args:
+            image: Input image normalized to [0, 1]
+            mask: Binary mask where True/1 indicates pixels to inpaint
+            **kwargs: Algorithm-specific parameters
+
+        Returns:
+            Inpainted image normalized to [0, 1]
+        """
+        inputs = self.preprocess_inputs(image, mask)
+        output = self._inpaint(inputs.image, inputs.mask, **kwargs)
+        return self.postprocess_output(output, inputs)
+
+    @abstractmethod
+    def _inpaint(self, image: Image, mask: Mask, **kwargs) -> Image:
+        """Inpainting logic for the specific algorithm."""
+        pass
 
     def load_image(
         self,
@@ -101,21 +204,58 @@ class InpaintingAlgorithm(ABC):
 
         logger.info(f"Saved result to {output_path}")
 
-    @abstractmethod
-    def inpaint(
-        self,
-        image: Image,
-        mask: Mask,
-        **kwargs,
-    ) -> Image:
-        """Inpaint the masked region.
+    def run_example(self):
+        import cv2
+        import matplotlib.pyplot as plt
 
-        Args:
-            image: Input image normalized to [0, 1]
-            mask: Binary mask where 1 indicates pixels to inpaint
-            **kwargs: Algorithm-specific parameters
+        # Load images
+        image = cv2.imread("data/datasets/real/real_1227/image.png", cv2.IMREAD_GRAYSCALE)
+        mask = cv2.imread("data/datasets/real/real_1227/mask_brush.png", cv2.IMREAD_GRAYSCALE)
+        print(image.shape, mask.shape)
 
-        Returns:
-            Inpainted image normalized to [0, 1]
-        """
-        pass
+        # Convert to float and normalize
+        image = image.astype(np.float32) / 255.0
+        mask = (mask > 0.5).astype(np.float32)
+
+        # Create a copy of the image for scrambling
+        scrambled_image = image.copy()
+
+        # Get the masked region
+        mask_region = mask > 0.5
+
+        # Option 1: Fill with random noise
+        # scrambled_image[mask_region] = np.random.uniform(0, 1, size=scrambled_image[mask_region].shape)
+
+        # Option 2: Fill with mean + noise (more realistic)
+        valid_pixels = image[~mask_region]
+        mean_value = np.mean(valid_pixels)
+        std_value = np.std(valid_pixels)
+        scrambled_image[mask_region] = np.random.normal(
+            mean_value, std_value, size=scrambled_image[mask_region].shape
+        )
+        scrambled_image = np.clip(scrambled_image, 0, 1)
+
+        # Run inpainting on the scrambled image
+        result = self.inpaint(scrambled_image, mask)
+
+        # Plotting
+        fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize=(20, 5))
+
+        ax1.imshow(image, cmap="gray")
+        ax1.set_title("Original")
+        ax1.axis("off")
+
+        ax2.imshow(scrambled_image, cmap="gray")
+        ax2.set_title("Scrambled Input")
+        ax2.axis("off")
+
+        ax3.imshow(mask, cmap="gray")
+        ax3.set_title("Mask")
+        ax3.axis("off")
+
+        ax4.imshow(result, cmap="gray")
+        ax4.set_title("Result")
+        ax4.axis("off")
+
+        plt.tight_layout()
+        plt.show()
