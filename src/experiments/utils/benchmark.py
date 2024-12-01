@@ -291,15 +291,17 @@ if __name__ == "__main__":
     from src.algorithms import (
         EfrosLeungInpainting,
         LamaInpainting,
+        LCMInpainting,
         NavierStokesInpainting,
         PatchMatchInpainting,
     )
 
     algorithms = [
-        NavierStokesInpainting(),
+        # LamaInpainting(),
+        # LCMInpainting(),
         EfrosLeungInpainting(),
+        NavierStokesInpainting(),
         PatchMatchInpainting(),
-        LamaInpainting(),
     ]
 
     image_size = 128
