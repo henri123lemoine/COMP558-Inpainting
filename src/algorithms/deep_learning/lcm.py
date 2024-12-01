@@ -150,28 +150,4 @@ class LCMInpainting(InpaintingAlgorithm):
 
 if __name__ == "__main__":
     inpainter = LCMInpainting()
-
-    image = cv2.imread("data/datasets/real/real_1227/image.png", cv2.IMREAD_GRAYSCALE)
-    mask = cv2.imread("data/datasets/real/real_1227/mask_brush.png", cv2.IMREAD_GRAYSCALE)
-    print(image.shape, mask.shape)
-
-    image = image.astype(np.float32) / 255.0
-    mask = (mask > 0.5).astype(np.float32)
-    result = inpainter.inpaint(image, mask)
-
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
-
-    ax1.imshow(image, cmap="gray")
-    ax1.set_title("Original")
-    ax1.axis("off")
-
-    ax2.imshow(mask, cmap="gray")
-    ax2.set_title("Mask")
-    ax2.axis("off")
-
-    ax3.imshow(result, cmap="gray")
-    ax3.set_title("Result")
-    ax3.axis("off")
-
-    plt.tight_layout()
-    plt.show()
+    inpainter.run_example()

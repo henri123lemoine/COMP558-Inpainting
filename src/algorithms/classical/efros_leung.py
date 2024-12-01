@@ -77,18 +77,58 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         """Get the valid neighborhood around a position."""
         half_window = self.params.window_size // 2
         y, x = pos  # position of the center pixel
+        window_size = self.params.window_size
 
-        # Extract neighborhood and corresponding mask
-        neighborhood = image[
-            y - half_window : y + half_window + 1, x - half_window : x + half_window + 1
-        ]
+        # Create padded versions of image and mask
+        pad_top = max(0, half_window - y)
+        pad_bottom = max(0, y + half_window + 1 - image.shape[0])
+        pad_left = max(0, half_window - x)
+        pad_right = max(0, x + half_window + 1 - image.shape[1])
 
-        mask_region = mask[
-            y - half_window : y + half_window + 1, x - half_window : x + half_window + 1
-        ]
+        if any([pad_top, pad_bottom, pad_left, pad_right]):
+            padded_image = np.pad(
+                image, ((pad_top, pad_bottom), (pad_left, pad_right)), mode="reflect"
+            )
+            padded_mask = np.pad(
+                mask,
+                ((pad_top, pad_bottom), (pad_left, pad_right)),
+                mode="constant",
+                constant_values=True,
+            )
 
-        # Valid pixels are those that don't need inpainting (mask != 1)
-        validity_mask = mask_region < 0.5
+            # Adjust position for padded arrays
+            y_pad = y + pad_top
+            x_pad = x + pad_left
+
+            # Extract exactly window_size x window_size neighborhood
+            neighborhood = padded_image[
+                y_pad - half_window : y_pad - half_window + window_size,
+                x_pad - half_window : x_pad - half_window + window_size,
+            ]
+            validity_mask = ~padded_mask[
+                y_pad - half_window : y_pad - half_window + window_size,
+                x_pad - half_window : x_pad - half_window + window_size,
+            ]
+        else:
+            # Extract exactly window_size x window_size neighborhood
+            neighborhood = image[
+                y - half_window : y - half_window + window_size,
+                x - half_window : x - half_window + window_size,
+            ]
+            validity_mask = ~mask[
+                y - half_window : y - half_window + window_size,
+                x - half_window : x - half_window + window_size,
+            ]
+
+        # Double check we got the right size
+        assert neighborhood.shape == (
+            window_size,
+            window_size,
+        ), f"Got shape {neighborhood.shape}, expected ({window_size}, {window_size})"
+        assert validity_mask.shape == (
+            window_size,
+            window_size,
+        ), f"Got shape {validity_mask.shape}, expected ({window_size}, {window_size})"
 
         return neighborhood, validity_mask
 
@@ -97,67 +137,101 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         target: np.ndarray,  # Target neighborhood
         valid_mask: Mask,  # Mask indicating valid pixels in target
         image: Image,  # Source image to search in
+        mask: Mask,  # Full image mask
         exclude_pos: tuple[int, int],  # Position to exclude from search
     ) -> tuple[float, tuple[int, int]]:
         """Find the best matching patch in the image."""
         half_window = self.params.window_size // 2
+        window_size = self.params.window_size
         height, width = image.shape[:2]
 
-        # Prepare valid positions for searching
-        y_range = range(half_window, height - half_window)
-        x_range = range(half_window, width - half_window)
+        # Only search in non-masked regions
+        search_positions = list(zip(*np.where(~mask)))
 
+        if not search_positions:
+            raise ValueError("No unmasked pixels available to sample from")
+
+        # Initialize with first valid position to ensure we always have a match
         best_error = float("inf")
         best_pos = None
         candidates = []
 
-        # Search through all possible positions
-        for y in y_range:
-            for x in x_range:
-                # Skip the excluded position
-                if (y, x) == exclude_pos:
-                    continue
+        # Find first valid position for initialization
+        for y, x in search_positions:
+            if (
+                y < half_window
+                or y >= height - half_window
+                or x < half_window
+                or x >= width - half_window
+                or (y, x) == exclude_pos
+            ):
+                continue
 
-                # Get neighborhood at this position
-                neighborhood = image[
-                    y - half_window : y + half_window + 1, x - half_window : x + half_window + 1
-                ]
+            best_pos = (y, x)  # Initialize with first valid position
+            break
 
-                # Calculate error for valid pixels only
-                error = np.sum(self.weights * valid_mask * (target - neighborhood) ** 2) / np.sum(
-                    self.weights * valid_mask
-                )
+        if best_pos is None:
+            raise ValueError("No valid positions found within window constraints")
 
-                if error < self.params.error_threshold:
-                    candidates.append((error, (y, x)))
-                    if error < best_error:
-                        best_error = error
-                        best_pos = (y, x)
+        # Now search through all positions for best match
+        for y, x in search_positions:
+            if (
+                y < half_window
+                or y >= height - half_window
+                or x < half_window
+                or x >= width - half_window
+            ):
+                continue
 
-        # If we found candidates, randomly choose from the best ones
+            if (y, x) == exclude_pos:
+                continue
+
+            # Get neighborhood at this position - use same window extraction as _get_neighborhood
+            neighborhood = image[
+                y - half_window : y - half_window + window_size,
+                x - half_window : x - half_window + window_size,
+            ]
+
+            # Get the mask for this neighborhood
+            neighborhood_mask = ~mask[
+                y - half_window : y - half_window + window_size,
+                x - half_window : x - half_window + window_size,
+            ]
+
+            # Only compare pixels that are valid in BOTH neighborhoods
+            combined_valid_mask = valid_mask & neighborhood_mask
+
+            # Skip if there are no valid pixels to compare
+            if np.sum(combined_valid_mask) == 0:
+                continue
+
+            # Calculate error only for mutually valid pixels
+            error = np.sum(self.weights * combined_valid_mask * (target - neighborhood) ** 2) / (
+                np.sum(self.weights * combined_valid_mask) + 1e-10
+            )
+
+            # Always keep track of the best match
+            if error < best_error:
+                best_error = error
+                best_pos = (y, x)
+
+            # Only add to candidates if below threshold
+            if error < self.params.error_threshold:
+                candidates.append((error, (y, x)))
+
+        # If we found candidates below threshold, randomly choose from the best ones
         if candidates:
             candidates.sort(key=lambda x: x[0])
             n_select = min(self.params.n_candidates, len(candidates))
             error, pos = candidates[np.random.randint(n_select)]
             return error, pos
 
+        # If no candidates below threshold, return the best match we found
+        assert best_pos is not None
         return best_error, best_pos
 
-    def inpaint(self, image: np.ndarray, mask: np.ndarray, max_steps: int = None) -> np.ndarray:
+    def _inpaint(self, image: np.ndarray, mask: np.ndarray, max_steps: int = None) -> np.ndarray:
         """Efros-Leung inpainting."""
-        if len(image.shape) != 2:
-            raise ValueError("Only grayscale images are supported")
-
-        # Normalize mask to binary 0/1
-        mask = (mask > 0.5).astype(np.float32)
-
-        if np.all(mask == 0):
-            logger.warning("Empty mask, nothing to inpaint")
-            return image
-        elif np.all(mask == 1):
-            logger.warning("Full mask, nothing to inpaint")
-            return image
-
         result = image.copy()
         remaining_mask = mask.copy()
         half_window = self.params.window_size // 2
@@ -192,7 +266,7 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
                         y - half_window : y + half_window + 1,
                         x - half_window : x + half_window + 1,
                     ]
-                    n_filled = np.sum(window_mask == 0)
+                    n_filled = np.sum(~window_mask == 0)
 
                     if n_filled > max_filled:
                         max_filled = n_filled
@@ -205,17 +279,38 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
                 # Get neighborhood of selected pixel
                 neighborhood, valid_mask = self._get_neighborhood(result, remaining_mask, best_pos)
 
-                # Find best matching patch
-                _, match_pos = self._find_best_match(neighborhood, valid_mask, image, best_pos)
+                try:
+                    # Find best matching patch
+                    _, match_pos = self._find_best_match(
+                        neighborhood, valid_mask, image, mask, best_pos
+                    )
 
-                if match_pos is None:
-                    logger.warning(f"No valid match found for position {best_pos}")
-                    # Fill with average of valid neighbors as fallback
+                    # Get the matched pixel value, ensure it's a valid number
+                    matched_value = image[match_pos]
+                    if matched_value is None or np.isnan(matched_value):
+                        raise ValueError("Invalid matched pixel value")
+
+                    result[best_pos] = matched_value
+
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Error finding match at {best_pos}: {e}")
+                    # Fall back to average of valid neighbors, ensuring we always set a valid value
                     valid_values = neighborhood[valid_mask]
-                    result[best_pos] = np.mean(valid_values) if len(valid_values) > 0 else 0.5
-                else:
-                    # Copy the center pixel from the best match
-                    result[best_pos] = image[match_pos]
+                    if len(valid_values) > 0:
+                        valid_values = valid_values[
+                            ~np.isnan(valid_values)
+                        ]  # Remove any NaN values
+                        if len(valid_values) > 0:
+                            result[best_pos] = np.mean(valid_values)
+                        else:
+                            result[best_pos] = 0.5  # Fallback if no valid values
+                    else:
+                        result[best_pos] = 0.5  # Fallback if no valid neighbors
+
+                # Verify we set a valid value
+                assert result[best_pos] is not None and not np.isnan(
+                    result[best_pos]
+                ), f"Invalid value set at position {best_pos}"
 
                 # Mark pixel as filled and update tracking
                 remaining_mask[best_pos] = 0
@@ -223,39 +318,13 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
                 unfilled_positions.remove(best_pos)
                 pbar.update(1)
 
-        logger.info(f"Completed inpainting of {filled_pixels} pixels")
+        # Final verification of output
+        assert not np.any(np.isnan(result)), "NaN values found in result"
+        assert not np.any([x is None for x in result.flat]), "None values found in result"
+
         return result
 
 
 if __name__ == "__main__":
-    import cv2
-    import matplotlib.pyplot as plt
-
     inpainter = EfrosLeungInpainting()
-
-    image = cv2.imread("data/datasets/real/real_1227/image.png", cv2.IMREAD_GRAYSCALE)
-    mask = cv2.imread("data/datasets/real/real_1227/mask_brush.png", cv2.IMREAD_GRAYSCALE)
-    print(image.shape, mask.shape)
-
-    plt.imshow(image, cmap="gray")
-
-    image = image.astype(np.float32) / 255.0
-    mask = (mask > 0.5).astype(np.float32)
-    result = inpainter.inpaint(image, mask)
-
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
-
-    ax1.imshow(image, cmap="gray")
-    ax1.set_title("Original")
-    ax1.axis("off")
-
-    ax2.imshow(mask, cmap="gray")
-    ax2.set_title("Mask")
-    ax2.axis("off")
-
-    ax3.imshow(result, cmap="gray")
-    ax3.set_title("Result")
-    ax3.axis("off")
-
-    plt.tight_layout()
-    plt.show()
+    inpainter.run_example(scale_factor=0.5)

@@ -214,7 +214,7 @@ class PatchMatchInpainting(InpaintingAlgorithm):
 
         for y in y_range:
             for x in x_range:
-                if mask[y, x] == 0:  # Skip source pixels
+                if not mask[y, x]:  # Skip source pixels
                     continue
 
                 current_patch, current_valid = self._get_patch(image, mask, y, x)
@@ -311,14 +311,13 @@ class PatchMatchInpainting(InpaintingAlgorithm):
 
                 nn_field[y, x] = best_nn
 
-    def inpaint(
+    def _inpaint(
         self,
         image: Image,
         mask: Mask,
         **kwargs,
     ) -> Image:
         """Inpaint using PatchMatch algorithm."""
-        # Validate inputs
         if len(image.shape) != 2:
             raise ValueError("Only grayscale images are supported")
 
@@ -369,34 +368,5 @@ class PatchMatchInpainting(InpaintingAlgorithm):
 
 
 if __name__ == "__main__":
-    import cv2
-    import matplotlib.pyplot as plt
-
     inpainter = PatchMatchInpainting()
-
-    image = cv2.imread("data/datasets/real/real_1227/image.png", cv2.IMREAD_GRAYSCALE)
-    mask = cv2.imread("data/datasets/real/real_1227/mask_brush.png", cv2.IMREAD_GRAYSCALE)
-    print(image.shape, mask.shape)
-
-    plt.imshow(image, cmap="gray")
-
-    image = image.astype(np.float32) / 255.0
-    mask = (mask > 0.5).astype(np.float32)
-    result = inpainter.inpaint(image, mask)
-
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
-
-    ax1.imshow(image, cmap="gray")
-    ax1.set_title("Original")
-    ax1.axis("off")
-
-    ax2.imshow(mask, cmap="gray")
-    ax2.set_title("Mask")
-    ax2.axis("off")
-
-    ax3.imshow(result, cmap="gray")
-    ax3.set_title("Result")
-    ax3.axis("off")
-
-    plt.tight_layout()
-    plt.show()
+    inpainter.run_example(scale_factor=0.5)
