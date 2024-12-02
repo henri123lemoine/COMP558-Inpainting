@@ -21,10 +21,10 @@ class MaskConfig:
 class InpaintSample:
     """Single sample for inpainting tasks."""
 
-    original: npt.NDArray[np.uint8]  # Original image
-    masked: npt.NDArray[np.float32]  # Image with NaN in masked regions
-    mask: npt.NDArray[np.uint8]  # Binary mask (255 where pixels should be inpainted)
-    category: ImageCategory  # Category of the test case
+    original: npt.NDArray[np.uint8]
+    masked: npt.NDArray[np.float32]
+    mask: npt.NDArray[np.bool_]
+    category: ImageCategory
 
 
 class MaskGenerator:
