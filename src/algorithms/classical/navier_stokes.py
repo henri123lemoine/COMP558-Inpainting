@@ -27,7 +27,7 @@ class NavierStokesInpainting(InpaintingAlgorithm):
     `https://www.math.ucla.edu/~bertozzi/papers/cvpr01.pdf`
     """
 
-    def __init__(self, max_iter: int = 300, dt: float = 0.05, nu: float = 0.1, K: float = 2.0):
+    def __init__(self, max_iter: int = 600, dt: float = 0.025, nu: float = 0.1, K: float = 2.0):
         super().__init__(name="Navier-Stokes")
         self.params = NavierStokesParams(
             max_iter=max_iter,
@@ -42,19 +42,19 @@ class NavierStokesInpainting(InpaintingAlgorithm):
             raise ValueError("Navier-Stokes inpainting requires a grayscale image.")
 
         height, width = image.shape
-        smoothness = self.compute_laplacian(image)
-        v_x, v_y = self.compute_gradients(image)
+        smoothness = self.compute_laplacian(image,mask)
+        v_x, v_y = self.compute_gradients(image,mask)
 
         for iteration in tqdm(range(self.params.max_iter), "Navier-Stokes"):
-            smoothness_x, smoothness_y = self.compute_gradients(smoothness)
+            smoothness_x, smoothness_y = self.compute_gradients(smoothness,mask)
             grad_smoothness_mag = np.sqrt(smoothness_x**2 + smoothness_y**2)
             g = self.perona_malik(grad_smoothness_mag, self.params.K)
-            diffusion = self.compute_laplacian(g * smoothness)  # check
+            diffusion = self.compute_laplacian(g * smoothness,mask)  # check
 
             smoothness_new = smoothness + self.params.dt * (
                 -v_x * smoothness_x - v_y * smoothness_y + self.params.nu * diffusion
             )
-            smoothness_new[mask == 0] = self.compute_laplacian(image)[mask == 0]
+            smoothness_new[mask == 0] = self.compute_laplacian(image,mask)[mask == 0]
 
             b = smoothness_new.flatten()
             data, row, col = [], [], []
@@ -93,8 +93,8 @@ class NavierStokesInpainting(InpaintingAlgorithm):
             image = I_flat.reshape(height, width)
             image = np.clip(image, 0, 1)
 
-            smoothness = self.compute_laplacian(image)
-            v_x, v_y = self.compute_gradients(image)
+            smoothness = self.compute_laplacian(image,mask)
+            v_x, v_y = self.compute_gradients(image,mask)
 
             # Convergence check
             if iteration % 10 == 0 or iteration == self.params.max_iter - 1:
@@ -104,24 +104,30 @@ class NavierStokesInpainting(InpaintingAlgorithm):
 
         return image
 
-    def compute_gradients(self, image: Image) -> tuple[Image, Image]:
+    def compute_gradients(self, image: Image, mask: Mask) -> tuple[Image, Image]:
         """Compute gradients Ix and Iy using finite differences."""
-
+        #check if mask is valid for pixels in x and y direction
+        valid_x = mask[:,:-2] * mask[:,2:]
+        valid_y = mask[:-2,:]*mask[2:,:]
+        
         Ix = np.zeros_like(image)
         Iy = np.zeros_like(image)
-        Ix[:, 1:-1] = (image[:, 2:] - image[:, :-2]) / 2
-        Iy[1:-1, :] = (image[2:, :] - image[:-2, :]) / 2
+        Ix[:, 1:-1] =np.where(valid_x>0,(image[:, 2:] - image[:, :-2]) / 2,0)
+        Iy[1:-1, :] = np.where(valid_y>0,(image[2:, :] - image[:-2, :]) / 2,0)
         return Ix, Iy
 
-    def compute_laplacian(self, image: Image) -> Image:
+    def compute_laplacian(self, image: Image, mask: Mask) -> Image:
         """Compute the Laplacian using finite differences."""
+
+        valid = (mask[1:-1,:-2]*mask[1:-1,2:]*mask[:-2,1:-1]*mask[2:, 1:-1]*mask[1:-1,1:-1])
+
         L = np.zeros_like(image)
-        L[1:-1, 1:-1] = (
+        L[1:-1, 1:-1] = np.where(valid>0,
             image[1:-1, :-2]
             + image[1:-1, 2:]
             + image[:-2, 1:-1]
             + image[2:, 1:-1]
-            - 4 * image[1:-1, 1:-1]
+            - 4 * image[1:-1, 1:-1],0
         )
         return L
 
