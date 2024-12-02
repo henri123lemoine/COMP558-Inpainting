@@ -159,27 +159,58 @@ class MaskGenerator:
     def _create_text_mask(
         self,
         image: npt.NDArray[np.uint8],
-        text: str = "COMP558 IS THE\nBEST CLASS",
+        text: str = "COMP558 IS THE BEST CLASS",
         scale: float = 0.8,
-        thickness: int | None = 1,
+        thickness: int = 1,
     ) -> npt.NDArray[np.uint8]:
-        """Create mask from text."""
+        """Create mask from text, automatically wrapping to fit image width."""
         h, w = image.shape[:2]
         mask = np.zeros((h, w), dtype=np.uint8)
 
-        if thickness is None and self.config.thickness_range:
-            thickness = np.random.randint(*self.config.thickness_range)
-        elif thickness is None:
-            thickness = max(1, min(w, h) // 32)
-
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = scale * min(w, h) / 500  # Scale relative to image size
-        text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
 
-        x = (w - text_size[0]) // 2
-        y = (h + text_size[1]) // 2
+        # First measure each word
+        words = text.split()
+        word_sizes = [cv2.getTextSize(word, font, font_scale, thickness)[0] for word in words]
 
-        cv2.putText(mask, text, (x, y), font, font_scale, 255, thickness)
+        # Build lines that fit within the image width
+        lines = []
+        current_line = []
+        current_width = 0
+        space_width = cv2.getTextSize(" ", font, font_scale, thickness)[0][0]
+
+        for word, (word_width, _) in zip(words, word_sizes):
+            # Check if adding this word would exceed image width
+            if current_line and current_width + space_width + word_width > w * 0.9:  # 90% of width
+                lines.append(" ".join(current_line))
+                current_line = [word]
+                current_width = word_width
+            else:
+                if current_line:
+                    current_width += space_width + word_width
+                else:
+                    current_width = word_width
+                current_line.append(word)
+
+        if current_line:
+            lines.append(" ".join(current_line))
+
+        # Calculate total height needed
+        line_height = cv2.getTextSize("X", font, font_scale, thickness)[0][1]
+        line_spacing = line_height + 10  # Add some padding between lines
+        total_height = line_spacing * len(lines)
+
+        # Start position (centered vertically)
+        y_start = (h - total_height) // 2 + line_height
+
+        # Draw each line
+        for i, line in enumerate(lines):
+            text_size = cv2.getTextSize(line, font, font_scale, thickness)[0]
+            x = (w - text_size[0]) // 2  # Center horizontally
+            y = y_start + i * line_spacing
+            cv2.putText(mask, line, (x, y), font, font_scale, 255, thickness)
+
         return mask
 
     def _generate_bezier_points(
