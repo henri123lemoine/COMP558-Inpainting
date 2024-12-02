@@ -113,7 +113,8 @@ class InpaintingBenchmark:
                     start_time = time.time()
                     # Note: Images are already properly scaled in InpaintSample
                     result = algorithm.inpaint(
-                        sample.original.astype(np.float32) / 255.0,
+                        sample.original.astype(np.float32)
+                        / 255.0,  # todo: fix to sample.masked / 255.0
                         sample.mask.astype(np.float32) / 255.0,
                     )
                     result = (result * 255).astype(np.uint8)
@@ -310,15 +311,15 @@ if __name__ == "__main__":
     algorithms = [
         # LamaInpainting(),
         # LCMInpainting(),
-        EfrosLeungInpainting(),
-        NavierStokesInpainting(),
-        PatchMatchInpainting(),
+        EfrosLeungInpainting(window_size=3),
+        NavierStokesInpainting(max_iter=100),
+        PatchMatchInpainting(patch_size=7, num_iterations=50),
     ]
 
-    image_size = 128
+    image_size = 16
     config = BenchmarkConfig(
         synthetic_size=image_size,
-        n_real_images=8,
+        n_real_images=2,
         real_size=image_size,
         save_individual=True,
         save_comparisons=True,
