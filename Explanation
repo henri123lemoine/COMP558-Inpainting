@@ -1,0 +1,102 @@
+\documentclass[12pt,letterpaper]{article}
+\usepackage{fullpage}
+\usepackage[top=2cm, bottom=4.5cm, left=1cm, right=2.5cm]{geometry}
+\usepackage{amsmath,amsthm,amsfonts,amssymb,amscd}
+\usepackage{lastpage}
+\usepackage{enumerate}
+\usepackage{fancyhdr}
+\usepackage{mathrsfs}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{amsmath}
+\usepackage{mathtools}
+\usepackage{bigints}
+\DeclarePairedDelimiter{\ceil}{\lceil}{\rceil}
+
+
+
+\hypersetup{%
+  colorlinks=true,
+  linkcolor=blue,
+  linkbordercolor={0 0 1}
+}
+ 
+\renewcommand\lstlistingname{Algorithm}
+\renewcommand\lstlistlistingname{Algorithms}
+\def\lstlistingautorefname{Alg.}
+
+\lstdefinestyle{Python}{
+    language        = Python,
+    frame           = lines, 
+    basicstyle      = \footnotesize,
+    keywordstyle    = \color{blue},
+    stringstyle     = \color{green},
+    commentstyle    = \color{red}\ttfamily
+}
+
+\setlength{\parindent}{0.0in}
+\setlength{\parskip}{0.05in}
+
+% Edit these as appropriate
+\newcommand\course{Comp 558}
+\newcommand\NetIDa{260959099}           % <-- NetID of person #1
+
+\pagestyle{fancyplain}
+\headheight 35pt
+\lhead{\NetIDa}
+\lhead{\NetIDa\\\NetIDb}                 % <-- Comment this line out for problem sets (make sure you are person #1)
+\chead{\textbf{\Large Explanation Draft}}
+\rhead{\course \\ \today}
+\lfoot{}
+\cfoot{}
+\rfoot{\small\thepage}
+\headsep 1.5em
+
+\begin{document}
+
+\newpage
+\section*{Explanation}
+We begin the analogy with the Naiver-Stokes equation which governs Incompressible Newtonian fluids. Let $v$ denote the velocity vector field of the fluid, which associates to each position $r = (x,y,z)$ and time $t$, a vector representative of fluids velocity. Let $p$ be a scalar that denotes pressure. The equation is, \\
+
+$v_t + v \cdot \nabla v = - \nabla p + \nu \nabla v$, $\nabla \cdot v = 0$. (1) \\
+
+The designation that $\nabla \cdot v = 0$ is termed divergence free, i.e. v is a divergence free velocity field. A stream function $\Psi(x,y)$ is a scalar function that satisfies the relationship $\nabla^{\bot} = v = (v_x,v_y)$, i.e., $\nabla \Psi_{y} = v_x, \nabla \Psi_x = -v_y$. The vorticity of flow field is $\omega = \nabla \times v$. \\
+
+We can take the curl of (1), \\
+$\nabla \times (v_t + v \cdot \nabla v) = \nabla \times (- \nabla p + \nu \nabla v)$ \\
+ \\
+
+$\nabla \times (v_t + v \cdot \nabla v)  = \nabla \times v_t + \nabla \times (v \cdot \nabla v) $ since $\nabla \times (A + B) = \nabla \times A + \nabla \times B$. \\
+$= \dfrac{\delta (\nabla \times v)}{\delta t} + \nabla (v \cdot \nabla v)$ since $\delta \times \dfrac{\delta A}{\delta t} = \dfrac{\delta}{\delta t}(\nabla \times A)$ \\
+$ = w_t + \nabla \times (v \cdot \nabla v)$ since $w = \nabla \times v$ by definition. \\
+$= w_t + (v \cdot \nabla)(\nabla \times v) - (w \cdot \nabla)(v)$ for some reason. Since $w$ is a scalar value, $\nabla \cdot w = 0$. Hence, \\
+$\nabla \times (v_t + v \cdot \nabla v) = w_t + (v \cdot \nabla)w$. \\
+
+The right hand side becomes $\nu \nabla w$, hence, $w_t + (v \cdot \nabla)w = \nu \nabla w$. 
+
+
+With the assumption that the fluid has no viscocity, i.e., $\nu = 0$, we have that $\omega_t + (v \cdot \nabla)\omega = 0$. Furthermore, with the assumption of a steady state flow, $w_t = 0$, we have that $(v \cdot \nabla )\omega = 0$. Noticing that $\triangle \Psi = \omega$, $(v \cdot \nabla)\triangle \Psi = 0$. \\
+$(v \cdot \nabla)\triangle \Psi = 0$. \\
+$v \cdot \nabla \triangle \Psi = 0$. \\
+
+By definition, $\dfrac{\delta \Psi}{\delta y} = v_x$ and $\dfrac{\delta \Psi}{\delta x} = -v_y$, hence, \\
+
+$\nabla^{\bot} \Psi = (v_x, v_y)$ and so, \\
+
+$\nabla^{\bot} \Psi \cdot \nabla \triangle \Psi = 0$. \\
+
+"which says that the Laplacian of the stream function, and hence the vorticity, must have the same level curves as the steam function". 
+
+To see this, $\nabla \Psi$ is normal to streamlines of $\Psi$ since streamlines are the level curves of $\Psi$. $\nabla^{\bot} \Psi$ is a 90 degree rotation of $\nabla \Psi$, hence, tangent to streamlines of $\Psi$. The equation implies that the tangents of stream lines are orthogonal to gradients of the Laplacian of $I$. Since the gradient of $\triangle I$ is orthogonal to level curves of $\triangle I$, it follows that the streamlines of $I$ are parallel to the level curves of $I$. \\
+
+
+
+This derivation justifies the use of the technique. "The concept of smooth continuation of information in the level-lines direction has been addressed in [2]". ... "The proposed algorithm propagates the image Laplacian in the level-lines (isophotes) direction. The algorithm attempts to imitate basic approaches used by professional restorators."  \\
+
+With the justification sorted, we use (1) with the stream function $\Psi$ now being represented by the image intensity $I$. We begin with equation $\omega_t + v \cdot \nabla w = \nu \triangle w$ which was obtained with the assumption of steady state flow and no viscocity. We add anistrophic diffusion through $g$. 
+
+
+\end{document}
