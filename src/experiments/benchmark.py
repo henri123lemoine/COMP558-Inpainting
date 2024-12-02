@@ -11,7 +11,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from src.algorithms.base import Image, InpaintingAlgorithm, Mask
-from src.experiments.utils.datasets import InpaintingDataset
+from src.datasets.images import InpaintingDataset
 from src.experiments.utils.metrics import InpaintingMetrics
 from src.experiments.utils.visualization import (
     create_error_heatmap,
@@ -85,68 +85,83 @@ class InpaintingBenchmark:
         """Run complete benchmark suite."""
         results = []
 
-        synthetic_cases = self.dataset.generate_synthetic_dataset(size=self.config.synthetic_size)
-        real_cases = self.dataset.load_real_dataset(
-            n_images=self.config.n_real_images, size=self.config.real_size
+        # Get all test cases
+        synthetic_samples = self.dataset.generate_synthetic_dataset(
+            size=self.config.synthetic_size, mask_types=["center", "random", "brush", "text"]
+        )
+        real_samples = self.dataset.load_real_dataset(
+            n_images=self.config.n_real_images,
+            size=self.config.real_size,
+            mask_types=["center", "random", "brush", "text"],
         )
 
-        all_cases = {**synthetic_cases, **real_cases}
-        logger.info(f"Running benchmark on {len(all_cases)} test cases")
+        all_samples = {**synthetic_samples, **real_samples}
+        logger.info(f"Running benchmark on {len(all_samples)} test cases")
 
-        for case_name, case_data in tqdm(all_cases.items(), desc="Test cases"):
-            category = case_data["category"]
-            image = case_data["image"]
+        # Note: case_name now includes the mask type (e.g. "lines_center", "real_0_brush")
+        for case_name, sample in tqdm(all_samples.items(), desc="Test cases"):
+            # Extract base case name and mask type from case_name
+            base_name, mask_type = case_name.rsplit("_", 1)
 
-            for mask_name, mask in case_data["masks"].items():
-                # Run each algorithm
-                algorithm_results = {}
+            # Run each algorithm
+            algorithm_results = {}
 
-                for algorithm in self.algorithms:
-                    logger.debug(f"Running {algorithm.name} on {case_name} with {mask_name} mask")
+            for algorithm in self.algorithms:
+                logger.debug(f"Running {algorithm.name} on {base_name} with {mask_type} mask")
 
-                    # Run algorithm and measure time
-                    try:
-                        start_time = time.time()
-                        norm_image = case_data["image"].astype(np.float32) / 255.0
-                        norm_mask = mask.astype(np.float32) / 255.0
-                        result = algorithm.inpaint(norm_image, norm_mask)
-                        result = (result * 255).astype(np.uint8)
-                        exec_time = time.time() - start_time
+                try:
+                    start_time = time.time()
+                    # Note: Images are already properly scaled in InpaintSample
+                    result = algorithm.inpaint(
+                        sample.original.astype(np.float32) / 255.0,
+                        sample.mask.astype(np.float32) / 255.0,
+                    )
+                    result = (result * 255).astype(np.uint8)
+                    exec_time = time.time() - start_time
 
-                        # Compute metrics
-                        metrics = InpaintingMetrics.compute(
-                            original=image, result=result, mask=mask, execution_time=exec_time
+                    # Compute metrics
+                    metrics = InpaintingMetrics.compute(
+                        original=sample.original,
+                        result=result,
+                        mask=sample.mask,
+                        execution_time=exec_time,
+                    )
+
+                    # Store results
+                    algorithm_results[algorithm.name] = {"result": result, "metrics": metrics}
+
+                    # Add to results list
+                    results.append(
+                        {
+                            "Algorithm": algorithm.name,
+                            "Case": base_name,
+                            "Mask": mask_type,
+                            "Category": str(sample.category.name),  # Convert enum to string
+                            **metrics.to_dict(),
+                        }
+                    )
+
+                    # Save individual results if requested
+                    if self.config.save_individual:
+                        self._save_individual_result(
+                            algorithm.name,
+                            base_name,
+                            mask_type,
+                            sample.original,
+                            sample.mask,
+                            result,
+                            metrics,
                         )
 
-                        # Store results
-                        algorithm_results[algorithm.name] = {"result": result, "metrics": metrics}
+                except Exception as e:
+                    logger.error(f"Error processing {case_name} with {algorithm.name}: {str(e)}")
+                    continue
 
-                        # Add to results list
-                        results.append(
-                            {
-                                "Algorithm": algorithm.name,
-                                "Case": case_name,
-                                "Mask": mask_name,
-                                "Category": category,
-                                **metrics.to_dict(),
-                            }
-                        )
-
-                        # Save individual results if requested
-                        if self.config.save_individual:
-                            self._save_individual_result(
-                                algorithm.name, case_name, mask_name, image, mask, result, metrics
-                            )
-
-                    except Exception as e:
-                        logger.error(
-                            f"Error processing {case_name} with {algorithm.name}: {str(e)}"
-                        )
-                        continue
-
-                # Generate comparisons if we have results
-                if algorithm_results and self.config.save_comparisons:
-                    self._save_comparison(case_name, mask_name, image, mask, algorithm_results)
+            # Generate comparisons if we have results
+            if algorithm_results and self.config.save_comparisons:
+                self._save_comparison(
+                    base_name, mask_type, sample.original, sample.mask, algorithm_results
+                )
 
         df = pd.DataFrame(results)
         self._generate_report(df)
