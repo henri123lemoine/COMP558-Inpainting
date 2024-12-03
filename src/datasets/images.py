@@ -252,10 +252,7 @@ class InpaintingDataset:
 
         The function expects masks to be named with _mask suffix, e.g.:
         - test-images/image1.png
-        - test-images/masks/image1_mask.png
-
-        Returns:
-            Dictionary mapping case names to InpaintSample objects
+        - test-images/masks/image1.png
         """
         # Load all available masks first
         masks = MaskGenerator.load_masks_from_directory(mask_dir, target_size=target_size)
@@ -290,13 +287,19 @@ class InpaintingDataset:
 
             # Look for corresponding mask
             image_name = image_file.stem
-            mask_name = f"{image_name}_mask"  # Expected mask name
+            mask_names = [image_name, f"{image_name}_mask"]
 
-            if mask_name not in masks:
-                logger.warning(f"No matching mask found for {image_name}")
+            found_mask = None
+            for mask_name in mask_names:
+                if mask_name in masks:
+                    found_mask = masks[mask_name]
+                    break
+
+            if found_mask is None:
+                logger.warning(f"No matching mask found for custom {image_name}")
                 continue
 
-            mask = masks[mask_name].astype(np.uint8) * 255
+            mask = found_mask.astype(np.uint8) * 255
             masked = self._apply_mask(image, mask)
 
             samples[f"custom_{image_name}"] = InpaintSample(
