@@ -15,6 +15,8 @@ from .utils import ImageCategory
 class ImageGenerator:
     """Manages generation of synthetic test images."""
 
+    ## Basic Patterns ##
+
     def create_line_image(self, size: int) -> npt.NDArray[np.uint8]:
         """Create test image with straight lines."""
         image = np.zeros((size, size), dtype=np.uint8)
@@ -50,7 +52,22 @@ class ImageGenerator:
             cv2.line(image, pt1, pt2, 255, 2)
         return image
 
-    def create_checker_image(self, size: int) -> npt.NDArray[np.uint8]:
+    def create_diagonal_pattern(self, size: int) -> np.ndarray:
+        """Create a diagonal stripes pattern."""
+        pattern = np.zeros((size, size), dtype=np.uint8)
+        for i in range(size):
+            pattern[i, (i // 2) % (size // 4) :: size // 4] = 255
+        return pattern
+
+    def create_cross_lines(self, size: int) -> np.ndarray:
+        """Create an image with crossing lines and a circle."""
+        image = np.zeros((size, size), dtype=np.uint8)
+        cv2.line(image, (size // 4, size // 4), (3 * size // 4, 3 * size // 4), 255, 2)
+        cv2.line(image, (size // 4, 3 * size // 4), (3 * size // 4, size // 4), 255, 2)
+        cv2.circle(image, (size // 2, size // 2), size // 4, 255, 2)
+        return image
+
+    def create_checkerboard(self, size: int) -> npt.NDArray[np.uint8]:
         """Create checkerboard pattern."""
         image = np.zeros((size, size), dtype=np.uint8)
         square_size = size // 8
@@ -61,6 +78,26 @@ class ImageGenerator:
                 image[
                     i + square_size : i + 2 * square_size, j + square_size : j + 2 * square_size
                 ] = 255
+        return image
+
+    def create_checker_pattern(self, size: int) -> np.ndarray:
+        """Create a checker pattern."""
+        pattern = np.zeros((size, size), dtype=np.uint8)
+        pattern[::4, ::4] = 255  # Set every 4th pixel starting at (0,0)
+        pattern[1::4, 1::4] = 255  # Set every 4th pixel starting at (1,1)
+        return pattern
+
+    def create_textured_checker(self, size: int) -> np.ndarray:
+        """Create a noisy checkerboard pattern."""
+        image = np.zeros((size, size), dtype=np.uint8)
+        square_size = 8
+        for i in range(0, size, square_size):
+            for j in range(0, size, square_size):
+                if (i + j) // square_size % 2 == 0:
+                    image[i : i + square_size, j : j + square_size] = 255
+
+        noise = np.random.normal(0, 20, (size, size))
+        image = np.clip(image + noise, 0, 255).astype(np.uint8)
         return image
 
     def create_dot_pattern(self, size: int) -> npt.NDArray[np.uint8]:
@@ -77,6 +114,8 @@ class ImageGenerator:
         """Create structured noise pattern."""
         noise = np.random.randint(0, 256, (size // 4, size // 4), dtype=np.uint8)
         return cv2.resize(noise, (size, size), interpolation=cv2.INTER_NEAREST)
+
+    ## Gradients ##
 
     def create_linear_gradient(self, size: int) -> npt.NDArray[np.uint8]:
         """Create linear gradient."""
@@ -102,8 +141,12 @@ class InpaintingDataset:
         "lines": (ImageGenerator.create_line_image, ImageCategory.STRUCTURE),
         "shapes": (ImageGenerator.create_shape_image, ImageCategory.STRUCTURE),
         "curves": (ImageGenerator.create_curve_image, ImageCategory.STRUCTURE),
+        "cross_lines": (ImageGenerator.create_cross_lines, ImageCategory.STRUCTURE),
+        "diagonal": (ImageGenerator.create_diagonal_pattern, ImageCategory.STRUCTURE),
         # Texture cases
-        "checkerboard": (ImageGenerator.create_checker_image, ImageCategory.TEXTURE),
+        "checkerboard": (ImageGenerator.create_checkerboard, ImageCategory.TEXTURE),
+        "checker": (ImageGenerator.create_checker_pattern, ImageCategory.TEXTURE),
+        "checkerboard_noisy": (ImageGenerator.create_textured_checker, ImageCategory.TEXTURE),
         "dots": (ImageGenerator.create_dot_pattern, ImageCategory.TEXTURE),
         "noise": (ImageGenerator.create_noise_pattern, ImageCategory.TEXTURE),
         # Gradient cases
@@ -114,13 +157,7 @@ class InpaintingDataset:
     def __init__(
         self, root_dir: Path | str, mask_config: MaskConfig | None = None, save_samples: bool = True
     ):
-        """Initialize dataset manager.
-
-        Args:
-            root_dir: Directory for storing dataset files
-            mask_config: Configuration for mask generation
-            save_samples: Whether to save generated samples to disk
-        """
+        """Initialize dataset manager."""
         self.root_dir = Path(root_dir)
         self.root_dir.mkdir(parents=True, exist_ok=True)
 
@@ -148,16 +185,7 @@ class InpaintingDataset:
         force_regenerate: bool = False,
         mask_types: List[str] = ["center", "random", "brush", "text"],
     ) -> Dict[str, InpaintSample]:
-        """Generate synthetic test cases.
-
-        Args:
-            size: Size of synthetic images (square)
-            force_regenerate: If True, regenerate even if files exist
-            mask_types: Types of masks to generate for each image
-
-        Returns:
-            Dictionary mapping case names to InpaintSample objects
-        """
+        """Generate synthetic test cases."""
         dataset = {}
 
         for case_name, (gen_func, category) in self.SYNTHETIC_IMAGES.items():

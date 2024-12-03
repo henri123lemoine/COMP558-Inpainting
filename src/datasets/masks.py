@@ -214,6 +214,8 @@ class MaskGenerator:
 
         return mask
 
+    ## Helpers ##
+
     def _generate_bezier_points(
         self, w: int, h: int, n_points: int = 50
     ) -> list[npt.NDArray[np.int32]]:
