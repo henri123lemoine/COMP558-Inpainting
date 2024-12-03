@@ -10,15 +10,14 @@ from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 class InpaintingMetrics:
     """Metrics for inpainting quality assessment."""
 
-    # Traditional image quality metrics (from libraries)
     psnr: float  # Peak Signal-to-Noise Ratio
     ssim: float  # Structural Similarity Index
     mae: float  # Mean Absolute Error
 
-    # Simple distribution metric
+    # distribution metric
     emd: float  # Earth Mover's Distance
 
-    # Simple edge metric
+    # edge metric
     edge_error: float  # Basic Sobel edge difference
 
     # Time
@@ -33,22 +32,12 @@ class InpaintingMetrics:
         execution_time: float,
     ) -> "InpaintingMetrics":
         """Compute metrics comparing original and inpainted result."""
-        # Ensure correct format
-        if original.dtype != np.uint8:
-            original = (original * 255).astype(np.uint8)
-        if result.dtype != np.uint8:
-            result = (result * 255).astype(np.uint8)
         mask_bool = mask.astype(bool)
 
-        # Core metrics using library implementations
         psnr = peak_signal_noise_ratio(original, result, data_range=255)
         ssim = structural_similarity(original[mask_bool], result[mask_bool], data_range=255)
         mae = np.mean(np.abs(original.astype(float) - result.astype(float)))
-
-        # Simple distribution comparison in masked region
         emd = wasserstein_distance(original[mask_bool].flatten(), result[mask_bool].flatten())
-
-        # Simple edge comparison
         edge_error = cls._compute_edge_error(original, result, mask_bool)
 
         return cls(
@@ -87,35 +76,33 @@ class InpaintingMetrics:
 
 
 if __name__ == "__main__":
-    # Test metrics computation
+    import random
     from pathlib import Path
 
-    from src.experiments.utils.datasets import InpaintingDataset
+    import matplotlib.pyplot as plt
 
-    # Load a test case
+    from src.datasets.images import InpaintingDataset
+
     dataset = InpaintingDataset(Path("data/datasets"))
     test_cases = dataset.generate_synthetic_dataset(size=128)
 
-    # Get a test case
-    test_case = test_cases["shapes"]
-    original = test_case["image"]
-    mask = test_case["masks"]["center"]
+    # Randomly select one test case
+    test_case_name = random.choice(list(test_cases.keys()))
+    test_case = test_cases[test_case_name]
+    original = test_case.original
+    mask = test_case.mask
 
-    # Create a simple "inpainting" result (just for testing)
     result = original.copy()
-    result[mask > 0] = np.mean(original[mask == 0])  # Simple mean filling
+    result[mask > 0] = np.mean(original[mask == 0])
 
-    # Compute metrics
     metrics = InpaintingMetrics.compute(
         original=original, result=result, mask=mask, execution_time=0.1
     )
 
-    # Print results
     print("Test Metrics:")
-    print(metrics.get_summary())
-
-    # Visual test
-    import matplotlib.pyplot as plt
+    print(
+        metrics.get_summary()
+    )  # Interesintg observation: RESULTS ARE PRETTY BAD! This makes sense. Inpainting is not trivial!
 
     fig, axes = plt.subplots(1, 3, figsize=(12, 4))
     axes[0].imshow(original, cmap="gray")
