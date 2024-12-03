@@ -242,6 +242,75 @@ class InpaintingDataset:
 
         return real_cases
 
+    def load_custom_dataset(
+        self,
+        image_dir: Path | str = "test-images/",
+        mask_dir: Path | str = "test-images/masks/",
+        target_size: tuple[int, int] | None = None,
+    ) -> dict[str, InpaintSample]:
+        """Load custom image-mask pairs for inpainting.
+
+        The function expects masks to be named with _mask suffix, e.g.:
+        - test-images/image1.png
+        - test-images/masks/image1_mask.png
+
+        Returns:
+            Dictionary mapping case names to InpaintSample objects
+        """
+        # Load all available masks first
+        masks = MaskGenerator.load_masks_from_directory(mask_dir, target_size=target_size)
+        if not masks:
+            raise ValueError(f"No masks found in {mask_dir}")
+
+        # Load all images
+        image_dir = Path(image_dir)
+        if not image_dir.exists():
+            raise ValueError(f"Image directory {image_dir} does not exist")
+
+        # Find all image files
+        extensions = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tiff"]
+        image_files = []
+        for ext in extensions:
+            image_files.extend(image_dir.glob(ext))
+
+        if not image_files:
+            raise ValueError(f"No images found in {image_dir}")
+
+        samples = {}
+        for image_file in image_files:
+            # Read and preprocess image
+            image = cv2.imread(str(image_file), cv2.IMREAD_GRAYSCALE)
+            if image is None:
+                logger.warning(f"Could not read image file: {image_file}")
+                continue
+
+            # Resize if needed
+            if target_size is not None:
+                image = cv2.resize(image, (target_size[1], target_size[0]))
+
+            # Look for corresponding mask
+            image_name = image_file.stem
+            mask_name = f"{image_name}_mask"  # Expected mask name
+
+            if mask_name not in masks:
+                logger.warning(f"No matching mask found for {image_name}")
+                continue
+
+            mask = masks[mask_name].astype(np.uint8) * 255
+            masked = self._apply_mask(image, mask)
+
+            samples[f"custom_{image_name}"] = InpaintSample(
+                original=image, masked=masked, mask=mask, category=ImageCategory.CUSTOM
+            )
+
+            logger.debug(
+                f"Processed custom pair '{image_name}' "
+                f"(size: {image.shape}, mask coverage: {np.mean(mask > 0):.1%})"
+            )
+
+        logger.info(f"Loaded {len(samples)} custom image-mask pairs")
+        return samples
+
     def load_images_from_directory(
         self,
         image_dir: Path | str = "test-images/",
