@@ -242,6 +242,73 @@ class InpaintingDataset:
 
         return real_cases
 
+    def load_images_from_directory(
+        self,
+        image_dir: Path | str = "test_images/",
+        target_size: tuple[int, int] | None = None,
+        mask_types: List[str] = ["center", "random", "brush", "text"],
+    ) -> Dict[str, InpaintSample]:
+        """Load and prepare images from a directory for inpainting.
+
+        Notes:
+            - Supports common image formats (png, jpg, etc.)
+            - Converts color images to grayscale
+            - Automatically resizes images if target_size is provided
+            - Generates specified mask types for each image
+        """
+        image_dir = Path(image_dir)
+        if not image_dir.exists():
+            raise ValueError(f"Image directory {image_dir} does not exist")
+
+        # Find all image files
+        extensions = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tiff"]
+        image_files = []
+        for ext in extensions:
+            image_files.extend(image_dir.glob(ext))
+
+        if not image_files:
+            raise ValueError(f"No images found in {image_dir}")
+
+        samples = {}
+        for image_file in image_files:
+            # Read and preprocess image
+            image = cv2.imread(str(image_file), cv2.IMREAD_GRAYSCALE)
+            if image is None:
+                logger.warning(f"Could not read image file: {image_file}")
+                continue
+
+            # Resize if needed
+            if target_size is not None:
+                image = cv2.resize(image, (target_size[1], target_size[0]))
+
+            # Generate masks and create samples
+            image_name = image_file.stem
+            for mask_type in mask_types:
+                mask = self.mask_generator.generate(image, mask_type)
+                masked = self._apply_mask(image, mask)
+
+                # Save samples if configured
+                if self.save_samples:
+                    case_dir = self.root_dir / "custom" / image_name
+                    case_dir.mkdir(parents=True, exist_ok=True)
+                    cv2.imwrite(str(case_dir / "image.png"), image)
+                    cv2.imwrite(str(case_dir / f"mask_{mask_type}.png"), mask)
+
+                samples[f"{image_name}_{mask_type}"] = InpaintSample(
+                    original=image,
+                    masked=masked,
+                    mask=mask,
+                    category=ImageCategory.REAL,  # Custom images treated as real
+                )
+
+                logger.debug(
+                    f"Processed '{image_name}' with {mask_type} mask "
+                    f"(size: {image.shape}, mask coverage: {np.mean(mask > 0):.1%})"
+                )
+
+        logger.info(f"Loaded and processed {len(image_files)} images from {image_dir}")
+        return samples
+
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
@@ -337,5 +404,39 @@ if __name__ == "__main__":
     sample = next(iter(synthetic_samples.values()))
     assert np.any(np.isnan(sample.masked)), "Masked image should contain NaN values"
     assert not np.any(np.isnan(sample.original)), "Original image should not contain NaN values"
+
+    # Test loading custom images
+    custom_dir = save_dir / "custom_test"
+    custom_dir.mkdir(exist_ok=True)
+
+    # Save some test images
+    for name, func in [
+        (
+            "custom_gradient",
+            lambda: np.linspace(0, 255, size * size).reshape(size, size).astype(np.uint8),
+        ),
+        (
+            "custom_circle",
+            lambda: cv2.circle(
+                np.zeros((size, size), dtype=np.uint8), (size // 2, size // 2), size // 3, 255, -1
+            ),
+        ),
+    ]:
+        cv2.imwrite(str(custom_dir / f"{name}.png"), func())
+
+    # Test loading custom images
+    custom_samples = dataset.load_images_from_directory(
+        custom_dir,
+        target_size=(64, 64),  # Test resizing
+        mask_types=["center", "text"],  # Test subset of mask types
+    )
+
+    # Plot some custom samples
+    for case_name, sample in custom_samples.items():
+        fig = plot_sample(sample, f"Custom: {case_name}")
+        fig.savefig(save_dir / f"test_custom_{case_name}.png", bbox_inches="tight", dpi=150)
+        plt.close()
+
+        logger.info(f"Generated visualization for custom sample {case_name}")
 
     logger.info("All tests completed successfully!")
