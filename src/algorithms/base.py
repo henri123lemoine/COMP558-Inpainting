@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeAlias
+from typing import NamedTuple, TypeAlias
 
 import cv2
 import numpy as np
@@ -12,12 +12,22 @@ Mask: TypeAlias = np.ndarray  # Shape: (H, W), dtype: bool or uint8
 PathLike: TypeAlias = str | Path
 
 
+class InpaintingResult(NamedTuple):
+    """Results from inpainting operation."""
+
+    original: Image
+    masked: Image
+    mask: Mask
+    output: Image
+
+
 @dataclass
 class InpaintingInputs:
     """Validated and preprocessed inputs for inpainting."""
 
-    image: Image  # Normalized to [0, 1]
-    mask: Mask  # Binary mask where True/1 indicates pixels to inpaint
+    original: Image
+    image: Image
+    mask: Mask
     original_dtype: np.dtype
     original_range: tuple[float, float]
 
@@ -56,6 +66,9 @@ class InpaintingAlgorithm(ABC):
 
     def preprocess_inputs(self, image: Image, mask: Mask) -> InpaintingInputs:
         """Preprocess inputs to standardized format."""
+        # Store original image before any processing
+        original = image.copy()
+
         # Store original properties for reconstruction
         original_dtype = image.dtype
         original_range = (float(image.min()), float(image.max()))
@@ -69,21 +82,23 @@ class InpaintingAlgorithm(ABC):
         if mask.dtype == bool:
             mask_binary = mask
         else:
-            # Important: standardize what 1 means!
-            # Here we say 1/True means "pixels to inpaint"
             mask_binary = (mask > 0).astype(bool)
 
-        # Validate after preprocessing
-        self.validate_inputs(image_float, mask_binary)
+        # Replace masked pixels with np.nan
+        image_float_masked = image_float.copy()
+        image_float_masked[mask_binary] = np.nan
 
-        # Debug visualizations
+        # Validate after preprocessing
+        self.validate_inputs(image_float_masked, mask_binary)
+
         logger.debug(f"Mask statistics: {mask_binary.sum()}/{mask_binary.size} pixels to inpaint")
         logger.debug(
-            f"Image range after normalization: [{image_float.min():.3f}, {image_float.max():.3f}]"
+            f"Image range after normalization: [{np.nanmin(image_float_masked):.3f}, {np.nanmax(image_float_masked):.3f}]"
         )
 
         return InpaintingInputs(
-            image=image_float,
+            original=original,
+            image=image_float_masked,
             mask=mask_binary,
             original_dtype=original_dtype,
             original_range=original_range,
@@ -101,20 +116,22 @@ class InpaintingAlgorithm(ABC):
         # Convert back to original dtype
         return output_clipped.astype(inputs.original_dtype)
 
-    def inpaint(self, image: Image, mask: Mask, **kwargs) -> Image:
+    def inpaint(self, image: Image, mask: Mask, **kwargs) -> tuple[Image, Image, Mask, Image]:
         """Inpaint the masked region.
 
-        Args:
-            image: Input image normalized to [0, 1]
-            mask: Binary mask where True/1 indicates pixels to inpaint
-            **kwargs: Algorithm-specific parameters
+        Returns
+        - original: Original input image
+        - masked: Image with mask applied (np.nan in masked regions)
+        - mask: Binary mask showing regions to inpaint
+        - output: Final inpainted result
 
-        Returns:
-            Inpainted image normalized to [0, 1]
+        ***IMPORTANT***: _inpaint() method must *never* see behind the mask!
         """
         inputs = self.preprocess_inputs(image, mask)
         output = self._inpaint(inputs.image, inputs.mask, **kwargs)
-        return self.postprocess_output(output, inputs)
+        processed_output = self.postprocess_output(output, inputs)
+
+        return inputs.original, inputs.image, inputs.mask, processed_output
 
     @abstractmethod
     def _inpaint(self, image: Image, mask: Mask, **kwargs) -> Image:
@@ -204,17 +221,31 @@ class InpaintingAlgorithm(ABC):
 
         logger.info(f"Saved result to {output_path}")
 
-    def run_example(self, scale_factor=1.0):
+    def run_example(
+        self,
+        image_path: str | Path = Path("test-images/portrait.png"),
+        mask_path: str | Path = Path("test-images/masks/portrait.png"),
+        scale_factor=1.0,
+        save_output=True,
+    ):
         """Run inpainting experiment with various options."""
         import cv2
         import matplotlib.pyplot as plt
-        import numpy as np
 
-        # Read images
-        image = cv2.imread("data/datasets/real/real_1227/image.png", cv2.IMREAD_GRAYSCALE)
-        mask = cv2.imread("data/datasets/real/real_1227/mask_center.png", cv2.IMREAD_GRAYSCALE)
+        image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
 
-        # Scale images if requested
+        if image is None:
+            raise FileNotFoundError(f"Error: Could not read the image file at {image_path}")
+        if mask is None:
+            raise FileNotFoundError(f"Error: Could not read the mask file at {mask_path}")
+
+        if mask.shape != image.shape:
+            print(f"Resizing mask from {mask.shape} to {image.shape}...")
+            mask = cv2.resize(
+                mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST
+            )
+
         if scale_factor != 1.0:
             new_size = (int(image.shape[1] * scale_factor), int(image.shape[0] * scale_factor))
             image = cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
@@ -222,24 +253,33 @@ class InpaintingAlgorithm(ABC):
 
         print(f"Working with image size: {image.shape}")
 
-        # Convert to float and normalize
-        image = image.astype(np.float32) / 255.0
-        mask = (mask > 0.5).astype(np.float32)
-        image[mask > 0.5] = np.nan
+        original, masked, mask, inpainted = self.inpaint(image, mask)
 
-        result = self.inpaint(image, mask)
+        plt.figure(figsize=(15, 5))
 
-        _, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 5))
-        ax1.imshow(image, cmap="gray")
-        ax1.set_title("Original")
-        ax1.axis("off")
-        ax2.imshow(mask, cmap="gray")
-        ax2.set_title("Mask")
-        ax2.axis("off")
-        ax3.imshow(result, cmap="gray")
-        ax3.set_title("Result")
-        ax3.axis("off")
+        plt.subplot(1, 4, 1)
+        plt.imshow(original, cmap="gray")
+        plt.title("Original Image")
+        plt.axis("off")
+
+        plt.subplot(1, 4, 2)
+        plt.imshow(masked, cmap="gray")
+        plt.title("Masked Image")
+        plt.axis("off")
+
+        plt.subplot(1, 4, 3)
+        plt.imshow(mask, cmap="gray")
+        plt.title("Mask")
+        plt.axis("off")
+
+        plt.subplot(1, 4, 4)
+        plt.imshow(inpainted, cmap="gray")
+        plt.title("Inpainted Result")
+        plt.axis("off")
+
         plt.tight_layout()
-        plt.show()
 
-        return image, mask, result
+        if save_output:
+            plt.savefig("comparison.png")
+
+        plt.show()
