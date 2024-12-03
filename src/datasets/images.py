@@ -367,7 +367,6 @@ if __name__ == "__main__":
         save_samples=True,
     )
 
-    # Generate both synthetic and real datasets
     synthetic_samples = dataset.generate_synthetic_dataset(
         size=128, force_regenerate=True, mask_types=["center", "random", "brush", "text"]
     )
@@ -376,12 +375,17 @@ if __name__ == "__main__":
         n_images=5, size=128, mask_types=["center", "random", "brush", "text"]
     )
 
-    # Plot some examples
+    custom_samples = dataset.load_images_from_directory(
+        target_size=(512, 512),
+        mask_types=["center", "text"],
+    )
+
     categories = {
         ImageCategory.STRUCTURE: ["lines", "shapes", "curves"],
         ImageCategory.TEXTURE: ["checkerboard", "dots", "noise"],
         ImageCategory.GRADIENT: ["linear_gradient", "radial_gradient"],
         ImageCategory.REAL: ["real_0", "real_1"],
+        ImageCategory.CUSTOM: list(custom_samples.keys()),
     }
 
     for category, cases in categories.items():
