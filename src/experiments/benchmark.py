@@ -11,7 +11,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from src.algorithms.base import Image, InpaintingAlgorithm, Mask
-from src.datasets.images import InpaintingDataset
+from src.datasets.images import InpaintingDataset, InpaintSample
 from src.datasets.utils import ImageCategory
 from src.experiments.utils.metrics import InpaintingMetrics
 from src.experiments.utils.visualization import (
@@ -30,6 +30,7 @@ class BenchmarkConfig:
     synthetic_size: int = 128  # Size of synthetic test images
     n_real_images: int = 20  # Number of real test images to use
     real_size: int = 128  # Size to resize real images to
+    custom_size: tuple[int, int] = (128, 128)  # Size of custom test images
 
     # Output parameters
     save_individual: bool = True  # Save individual results
@@ -49,7 +50,7 @@ class InpaintingBenchmark:
         output_dir: Path | None = None,
         config: BenchmarkConfig | None = None,
     ):
-        self.output_dir = output_dir or DATA_PATH / "benchmark_results"
+        self.output_dir = output_dir or (DATA_PATH / "benchmark_results")
         self.config = config or BenchmarkConfig()
 
         # Setup directories
@@ -73,33 +74,13 @@ class InpaintingBenchmark:
         sns.set_theme()
         sns.set_context("paper")
 
-    def run(self, algorithms: list[InpaintingAlgorithm]) -> pd.DataFrame:
+    def run(
+        self, algorithms: list[InpaintingAlgorithm], samples: dict[str, InpaintSample]
+    ) -> pd.DataFrame:
         """Run complete benchmark suite."""
         results = []
 
-        # Get all test cases
-        synthetic_samples = self.dataset.generate_synthetic_dataset(
-            size=self.config.synthetic_size, mask_types=["center", "random", "brush", "text"]
-        )
-        real_samples = self.dataset.load_real_dataset(
-            n_images=self.config.n_real_images,
-            size=self.config.real_size,
-            mask_types=["center", "random", "brush", "text"],
-        )
-
-        try:
-            custom_samples = self.dataset.load_custom_dataset(
-                target_size=(self.config.synthetic_size, self.config.synthetic_size)
-            )
-            logger.info(f"Loaded {len(custom_samples)} custom test cases")
-        except Exception as e:
-            logger.warning(f"Could not load custom dataset: {e}")
-            custom_samples = {}
-
-        all_samples = {**synthetic_samples, **real_samples, **custom_samples}
-        logger.info(f"Running benchmark on {len(all_samples)} test cases")
-
-        for case_name, sample in tqdm(all_samples.items(), desc="Test cases"):
+        for case_name, sample in tqdm(samples.items(), desc="Test cases"):
             base_name = case_name
             mask_type = (
                 "custom" if sample.category == ImageCategory.CUSTOM else case_name.rsplit("_", 1)[1]
@@ -111,21 +92,17 @@ class InpaintingBenchmark:
 
                 try:
                     start_time = time.time()
-                    result = algorithm.inpaint(
-                        sample.masked / 255.0,
-                        sample.mask.astype(np.float32) / 255.0,
-                    )
-                    result = np.nan_to_num(result, nan=0.0)
-                    result = np.clip(result, 0, 1)
-                    result = (result * 255).astype(np.uint8)
+                    original, masked, mask, result = algorithm.inpaint(sample.original, sample.mask)
+
                     exec_time = time.time() - start_time
 
                     metrics = InpaintingMetrics.compute(
-                        original=sample.original,
+                        original=original,
                         result=result,
-                        mask=sample.mask,
+                        mask=mask,
                         execution_time=exec_time,
                     )
+                    # print(metrics.get_summary())
 
                     algorithm_results[algorithm.name] = {"result": result, "metrics": metrics}
 
@@ -160,7 +137,7 @@ class InpaintingBenchmark:
                 )
 
         df = pd.DataFrame(results)
-        self._generate_report(df, algorithms)
+        # self._generate_report(df, algorithms)
 
         return df
 
@@ -384,6 +361,9 @@ class InpaintingBenchmark:
 
 
 if __name__ == "__main__":
+    import numpy as np
+    import pandas as pd
+
     from src.algorithms import (
         EfrosLeungInpainting,
         LamaInpainting,
@@ -392,7 +372,7 @@ if __name__ == "__main__":
         PatchMatchInpainting,
     )
 
-    image_size = 16
+    image_size = 64
     config = BenchmarkConfig(
         synthetic_size=image_size,
         n_real_images=2,
@@ -400,18 +380,31 @@ if __name__ == "__main__":
         save_individual=True,
         save_comparisons=True,
         save_heatmaps=True,
+        custom_size=(image_size, image_size),
     )
     benchmark = InpaintingBenchmark(config=config)
+
     algorithms = [
         # LamaInpainting(),
         # LCMInpainting(),
         EfrosLeungInpainting(window_size=3),
-        NavierStokesInpainting(max_iter=100),
+        NavierStokesInpainting(max_iter=50),
         PatchMatchInpainting(patch_size=7, num_iterations=50),
     ]
-    results_df = benchmark.run(algorithms)
-    logger.info("Benchmark completed! Results saved to data/benchmark_results/")
 
-    # benchmark = InpaintingBenchmark()
-    # benchmark.quick_test(NavierStokesInpainting(), test_case="lines", mask_type="center")
-    # benchmark.quick_test(NavierStokesInpainting(), test_case="real_0", mask_type="brush")
+    synthetic_samples = benchmark.dataset.generate_synthetic_dataset(
+        size=benchmark.config.synthetic_size, mask_types=["center", "random", "brush", "text"]
+    )
+    real_samples = benchmark.dataset.load_real_dataset(
+        n_images=benchmark.config.n_real_images,
+        size=benchmark.config.real_size,
+        mask_types=["center", "random", "brush", "text"],
+    )
+    custom_samples = benchmark.dataset.load_custom_dataset(target_size=benchmark.config.custom_size)
+    all_samples = {**synthetic_samples, **real_samples, **custom_samples}
+
+    logger.info(f"Running benchmark on {len(all_samples)} test cases")
+    results_df = benchmark.run(algorithms, samples=all_samples)
+    print("\nFinal results:")
+    print(results_df)
+    logger.info("Benchmark completed! Results saved to data/benchmark_results/")
