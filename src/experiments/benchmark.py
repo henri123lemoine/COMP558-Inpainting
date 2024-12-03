@@ -45,11 +45,9 @@ class InpaintingBenchmark:
 
     def __init__(
         self,
-        algorithms: list[InpaintingAlgorithm],
         output_dir: Path | None = None,
         config: BenchmarkConfig | None = None,
     ):
-        self.algorithms = algorithms
         self.output_dir = output_dir or DATA_PATH / "benchmark_results"
         self.config = config or BenchmarkConfig()
 
@@ -69,19 +67,12 @@ class InpaintingBenchmark:
         ]:
             directory.mkdir(parents=True, exist_ok=True)
 
-        # Initialize dataset
         self.dataset = InpaintingDataset(self.dataset_dir)
 
-        # Setup style for all plots
         sns.set_theme()
         sns.set_context("paper")
 
-        logger.info(
-            f"Initialized benchmark with {len(algorithms)} algorithms: "
-            f"{', '.join(alg.name for alg in algorithms)}"
-        )
-
-    def run(self) -> pd.DataFrame:
+    def run(self, algorithms: list[InpaintingAlgorithm]) -> pd.DataFrame:
         """Run complete benchmark suite."""
         results = []
 
@@ -100,27 +91,23 @@ class InpaintingBenchmark:
 
         # Note: case_name now includes the mask type (e.g. "lines_center", "real_0_brush")
         for case_name, sample in tqdm(all_samples.items(), desc="Test cases"):
-            # Extract base case name and mask type from case_name
             base_name, mask_type = case_name.rsplit("_", 1)
 
-            # Run each algorithm
             algorithm_results = {}
-
-            for algorithm in self.algorithms:
+            for algorithm in algorithms:
                 logger.debug(f"Running {algorithm.name} on {base_name} with {mask_type} mask")
 
                 try:
                     start_time = time.time()
                     # Note: Images are already properly scaled in InpaintSample
                     result = algorithm.inpaint(
-                        sample.original.astype(np.float32)
-                        / 255.0,  # todo: fix to sample.masked / 255.0
+                        # sample.original.astype(np.float32) / 255.0,
+                        sample.masked / 255.0,
                         sample.mask.astype(np.float32) / 255.0,
                     )
                     result = (result * 255).astype(np.uint8)
                     exec_time = time.time() - start_time
 
-                    # Compute metrics
                     metrics = InpaintingMetrics.compute(
                         original=sample.original,
                         result=result,
@@ -128,16 +115,14 @@ class InpaintingBenchmark:
                         execution_time=exec_time,
                     )
 
-                    # Store results
                     algorithm_results[algorithm.name] = {"result": result, "metrics": metrics}
 
-                    # Add to results list
                     results.append(
                         {
                             "Algorithm": algorithm.name,
                             "Case": base_name,
                             "Mask": mask_type,
-                            "Category": str(sample.category.name),  # Convert enum to string
+                            "Category": str(sample.category.name),
                             **metrics.to_dict(),
                         }
                     )
@@ -165,9 +150,94 @@ class InpaintingBenchmark:
                 )
 
         df = pd.DataFrame(results)
-        self._generate_report(df)
+        self._generate_report(df, algorithms)
 
         return df
+
+    def quick_test(
+        self,
+        algorithm: InpaintingAlgorithm,
+        test_case: str = "lines",
+        mask_type: str = "center",
+        size: int = 128,
+    ) -> None:
+        """Quickly test a single algorithm on a single case."""
+        # Generate or load the test case
+        if test_case.startswith("real"):
+            samples = self.dataset.load_real_dataset(n_images=1, size=size, mask_types=[mask_type])
+        else:
+            samples = self.dataset.generate_synthetic_dataset(
+                size=size, force_regenerate=True, mask_types=[mask_type]
+            )
+
+        # Get the specific test case
+        case_name = f"{test_case}_{mask_type}"
+        sample = samples.get(case_name)
+
+        if sample is None:
+            raise ValueError(f"Test case {case_name} not found")
+
+        # Run the algorithm
+        try:
+            logger.info(f"Running {algorithm.name} on {case_name}")
+
+            # Time the execution
+            start_time = time.time()
+            result = algorithm.inpaint(
+                sample.masked / 255.0, sample.mask.astype(np.float32) / 255.0
+            )
+            exec_time = time.time() - start_time
+
+            # Handle any NaN values in output
+            result = np.nan_to_num(result, nan=0.0)  # Convert NaNs to 0
+            result = np.clip(result, 0, 1)  # Ensure values in [0,1]
+            result = (result * 255).astype(np.uint8)
+
+            # Compute metrics with execution time
+            metrics = InpaintingMetrics.compute(
+                original=sample.original, result=result, mask=sample.mask, execution_time=exec_time
+            )
+
+            # Create visualization
+            fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+
+            # Original
+            axes[0, 0].imshow(sample.original, cmap="gray")
+            axes[0, 0].set_title("Original")
+            axes[0, 0].axis("off")
+
+            # Masked
+            masked_viz = sample.masked.copy()
+            masked_viz[np.isnan(masked_viz)] = 1.0  # White for visualization
+            axes[0, 1].imshow(masked_viz, cmap="gray")
+            axes[0, 1].set_title("Masked Input")
+            axes[0, 1].axis("off")
+
+            # Result
+            axes[1, 0].imshow(result, cmap="gray")
+            axes[1, 0].set_title(
+                f"Result\nPSNR: {metrics.psnr:.2f}, SSIM: {metrics.ssim:.3f}\nTime: {exec_time:.2f}s"
+            )
+            axes[1, 0].axis("off")
+
+            # Difference
+            diff = np.abs(sample.original.astype(float) - result.astype(float))
+            diff = diff / diff.max() if diff.max() > 0 else diff  # Normalize for visualization
+            axes[1, 1].imshow(diff, cmap="hot")
+            axes[1, 1].set_title("Error Map (brighter = larger error)")
+            axes[1, 1].axis("off")
+
+            plt.tight_layout()
+            plt.show()
+
+            logger.info(f"PSNR: {metrics.psnr:.2f}")
+            logger.info(f"SSIM: {metrics.ssim:.3f}")
+            logger.info(f"EMD: {metrics.emd:.3f}")
+            logger.info(f"Time: {exec_time:.2f}s")
+
+        except Exception as e:
+            logger.error(f"Error running {algorithm.name}: {str(e)}")
+            raise
 
     def _save_individual_result(
         self,
@@ -230,7 +300,9 @@ class InpaintingBenchmark:
             figsize=self.config.figsize,
         )
 
-    def _generate_report(self, results: pd.DataFrame) -> None:
+    def _generate_report(
+        self, results: pd.DataFrame, algorithms: list[InpaintingAlgorithm]
+    ) -> None:
         """Generate comprehensive report with tables and figures."""
         # Save full results
         results.to_csv(self.metrics_dir / "full_results.csv", index=False)
@@ -259,7 +331,7 @@ class InpaintingBenchmark:
 
         # Generate figures
         self._plot_metrics_by_category(results)
-        self._plot_metrics_distribution(results)
+        self._plot_metrics_distribution(results, algorithms)
 
     def _plot_metrics_by_category(self, results: pd.DataFrame) -> None:
         """Plot metrics broken down by category."""
@@ -277,13 +349,15 @@ class InpaintingBenchmark:
         )
         plt.close()
 
-    def _plot_metrics_distribution(self, results: pd.DataFrame) -> None:
+    def _plot_metrics_distribution(
+        self, results: pd.DataFrame, algorithms: list[InpaintingAlgorithm]
+    ) -> None:
         """Plot distribution of metrics across all cases."""
         metrics = ["PSNR", "SSIM", "EMD", "Time (s)"]
         fig, axes = plt.subplots(2, 2, figsize=self.config.figsize)
 
         for ax, metric in zip(axes.flat, metrics):
-            for algorithm in self.algorithms:
+            for algorithm in algorithms:
                 sns.kdeplot(
                     data=results[results["Algorithm"] == algorithm.name][metric],
                     label=algorithm.name,
@@ -308,14 +382,6 @@ if __name__ == "__main__":
         PatchMatchInpainting,
     )
 
-    algorithms = [
-        # LamaInpainting(),
-        # LCMInpainting(),
-        EfrosLeungInpainting(window_size=3),
-        NavierStokesInpainting(max_iter=100),
-        PatchMatchInpainting(patch_size=7, num_iterations=50),
-    ]
-
     image_size = 16
     config = BenchmarkConfig(
         synthetic_size=image_size,
@@ -325,7 +391,17 @@ if __name__ == "__main__":
         save_comparisons=True,
         save_heatmaps=True,
     )
-
-    benchmark = InpaintingBenchmark(algorithms=algorithms, config=config)
-    results_df = benchmark.run()
+    benchmark = InpaintingBenchmark(config=config)
+    algorithms = [
+        # LamaInpainting(),
+        # LCMInpainting(),
+        EfrosLeungInpainting(window_size=3),
+        NavierStokesInpainting(max_iter=100),
+        PatchMatchInpainting(patch_size=7, num_iterations=50),
+    ]
+    results_df = benchmark.run(algorithms)
     logger.info("Benchmark completed! Results saved to data/benchmark_results/")
+
+    # benchmark = InpaintingBenchmark()
+    # benchmark.quick_test(NavierStokesInpainting(), test_case="lines", mask_type="center")
+    # benchmark.quick_test(NavierStokesInpainting(), test_case="real_0", mask_type="brush")
