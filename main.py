@@ -47,8 +47,8 @@ def run_experiments(args: argparse.Namespace) -> None:
         experiment = ComparisonExperiment(name=f"single_{args.algorithm}", algorithms=[algorithm])
     elif args.experiment == "classical_comparison" or args.experiment == "all":
         algorithms = [
-            get_algorithm("efros_leung", args.quick),
-            get_algorithm("patch_match", args.quick),
+            #get_algorithm("efros_leung", args.quick),
+            #get_algorithm("patch_match", args.quick),
             get_algorithm("navier_stokes", args.quick),
         ]
         experiment = ComparisonExperiment(

@@ -27,7 +27,7 @@ class NavierStokesInpainting(InpaintingAlgorithm):
     `https://www.math.ucla.edu/~bertozzi/papers/cvpr01.pdf`
     """
 
-    def __init__(self, max_iter: int = 600, dt: float = 0.025, nu: float = 0.1, K: float = 2.0):
+    def __init__(self, max_iter: int = 2400, dt: float = 0.025, nu: float = 0.1, K: float = 2.0):
         super().__init__(name="Navier-Stokes")
         self.params = NavierStokesParams(
             max_iter=max_iter,
