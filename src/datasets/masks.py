@@ -307,7 +307,11 @@ class MaskGenerator:
 
 
 if __name__ == "__main__":
+    from pathlib import Path
+
+    import cv2
     import matplotlib.pyplot as plt
+    import numpy as np
     from scipy import ndimage
 
     # Test mask generation with different configurations
@@ -403,4 +407,36 @@ if __name__ == "__main__":
         [(name, mask.astype(np.uint8) * 255) for name, mask in loaded_masks.items()],
         "Loaded Custom Masks",
     )
+    plt.show()
+
+    ## Mask Generation For Specific Image
+    image = cv2.imread("test-images/the_scream.jpg")
+    if image is None:
+        raise ValueError("Could not read the_scream.jpg")
+
+    config = MaskConfig(
+        coverage_range=(0.14, 0.16),  # Target ~15% coverage
+        thickness_range=(1, 2),  # Thin strokes
+        num_components=(15, 20),  # More strokes to increase coverage
+    )
+
+    mask_gen = MaskGenerator(config)
+    mask = mask_gen.generate(image, "brush", n_strokes=50, stroke_width=2)
+
+    cv2.imwrite("mask.png", mask)
+    coverage = np.mean(mask > 0)
+    print(f"Mask coverage: {coverage:.1%}")
+
+    plt.figure(figsize=(10, 5))
+    plt.subplot(121)
+    plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    plt.title("Original")
+    plt.axis("off")
+
+    plt.subplot(122)
+    plt.imshow(mask, cmap="gray")
+    plt.title(f"Mask (coverage: {coverage:.1%})")
+    plt.axis("off")
+
+    plt.tight_layout()
     plt.show()
