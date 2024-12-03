@@ -242,6 +242,73 @@ class InpaintingDataset:
 
         return real_cases
 
+    def load_images_from_directory(
+        self,
+        image_dir: Path | str = "test-images/",
+        target_size: tuple[int, int] | None = None,
+        mask_types: List[str] = ["center", "random", "brush", "text"],
+    ) -> Dict[str, InpaintSample]:
+        """Load and prepare images from a directory for inpainting.
+
+        Notes:
+            - Supports common image formats (png, jpg, etc.)
+            - Converts color images to grayscale
+            - Automatically resizes images if target_size is provided
+            - Generates specified mask types for each image
+        """
+        image_dir = Path(image_dir)
+        if not image_dir.exists():
+            raise ValueError(f"Image directory {image_dir} does not exist")
+
+        # Find all image files
+        extensions = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tiff"]
+        image_files = []
+        for ext in extensions:
+            image_files.extend(image_dir.glob(ext))
+
+        if not image_files:
+            raise ValueError(f"No images found in {image_dir}")
+
+        samples = {}
+        for image_file in image_files:
+            # Read and preprocess image
+            image = cv2.imread(str(image_file), cv2.IMREAD_GRAYSCALE)
+            if image is None:
+                logger.warning(f"Could not read image file: {image_file}")
+                continue
+
+            # Resize if needed
+            if target_size is not None:
+                image = cv2.resize(image, (target_size[1], target_size[0]))
+
+            # Generate masks and create samples
+            image_name = image_file.stem
+            for mask_type in mask_types:
+                mask = self.mask_generator.generate(image, mask_type)
+                masked = self._apply_mask(image, mask)
+
+                # Save samples if configured
+                if self.save_samples:
+                    case_dir = self.root_dir / "custom" / image_name
+                    case_dir.mkdir(parents=True, exist_ok=True)
+                    cv2.imwrite(str(case_dir / "image.png"), image)
+                    cv2.imwrite(str(case_dir / f"mask_{mask_type}.png"), mask)
+
+                samples[f"{image_name}_{mask_type}"] = InpaintSample(
+                    original=image,
+                    masked=masked,
+                    mask=mask,
+                    category=ImageCategory.REAL,  # Custom images treated as real
+                )
+
+                logger.debug(
+                    f"Processed '{image_name}' with {mask_type} mask "
+                    f"(size: {image.shape}, mask coverage: {np.mean(mask > 0):.1%})"
+                )
+
+        logger.info(f"Loaded and processed {len(image_files)} images from {image_dir}")
+        return samples
+
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
@@ -300,7 +367,6 @@ if __name__ == "__main__":
         save_samples=True,
     )
 
-    # Generate both synthetic and real datasets
     synthetic_samples = dataset.generate_synthetic_dataset(
         size=128, force_regenerate=True, mask_types=["center", "random", "brush", "text"]
     )
@@ -309,12 +375,17 @@ if __name__ == "__main__":
         n_images=5, size=128, mask_types=["center", "random", "brush", "text"]
     )
 
-    # Plot some examples
+    custom_samples = dataset.load_images_from_directory(
+        target_size=(512, 512),
+        mask_types=["center", "text"],
+    )
+
     categories = {
         ImageCategory.STRUCTURE: ["lines", "shapes", "curves"],
         ImageCategory.TEXTURE: ["checkerboard", "dots", "noise"],
         ImageCategory.GRADIENT: ["linear_gradient", "radial_gradient"],
         ImageCategory.REAL: ["real_0", "real_1"],
+        ImageCategory.CUSTOM: list(custom_samples.keys()),
     }
 
     for category, cases in categories.items():
@@ -337,5 +408,18 @@ if __name__ == "__main__":
     sample = next(iter(synthetic_samples.values()))
     assert np.any(np.isnan(sample.masked)), "Masked image should contain NaN values"
     assert not np.any(np.isnan(sample.original)), "Original image should not contain NaN values"
+
+    # Test loading custom images
+    custom_samples = dataset.load_images_from_directory(  # uses default
+        target_size=(128, 128),
+        mask_types=["center", "text"],
+    )
+
+    for case_name, sample in custom_samples.items():
+        fig = plot_sample(sample, f"Custom: {case_name}")
+        fig.savefig(save_dir / f"test_custom_{case_name}.png", bbox_inches="tight", dpi=300)
+        plt.close()
+
+        logger.info(f"Generated visualization for custom sample {case_name}")
 
     logger.info("All tests completed successfully!")

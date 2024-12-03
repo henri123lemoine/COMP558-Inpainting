@@ -8,3 +8,4 @@ class ImageCategory(Enum):
     TEXTURE = auto()
     GRADIENT = auto()
     REAL = auto()
+    CUSTOM = auto()

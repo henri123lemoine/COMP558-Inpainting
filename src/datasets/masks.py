@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -21,10 +22,10 @@ class MaskConfig:
 class InpaintSample:
     """Single sample for inpainting tasks."""
 
-    original: npt.NDArray[np.uint8]  # Original image
-    masked: npt.NDArray[np.float32]  # Image with NaN in masked regions
-    mask: npt.NDArray[np.uint8]  # Binary mask (255 where pixels should be inpainted)
-    category: ImageCategory  # Category of the test case
+    original: npt.NDArray[np.uint8]
+    masked: npt.NDArray[np.float32]
+    mask: npt.NDArray[np.bool_]
+    category: ImageCategory
 
 
 class MaskGenerator:
@@ -243,6 +244,67 @@ class MaskGenerator:
 
         return curve_points
 
+    @staticmethod
+    def load_masks_from_directory(
+        mask_dir: Path | str = "test-images/masks/",
+        target_size: tuple[int, int] | None = None,
+        threshold: int = 127,
+        recursive: bool = True,
+    ) -> dict[str, npt.NDArray[np.bool_]]:
+        """Load mask images from a directory.
+
+        Notes:
+            - Supports common image formats (png, jpg, etc.)
+            - Converts color images to grayscale
+            - Thresholds grayscale images to create binary masks
+            - Automatically resizes masks if target_size is provided
+        """
+        mask_dir = Path(mask_dir)
+        if not mask_dir.exists():
+            raise ValueError(f"Mask directory {mask_dir} does not exist")
+
+        # Find all image files
+        extensions = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tiff"]
+        mask_files = []
+        for ext in extensions:
+            if recursive:
+                mask_files.extend(mask_dir.rglob(ext))
+            else:
+                mask_files.extend(mask_dir.glob(ext))
+
+        if not mask_files:
+            raise ValueError(f"No mask images found in {mask_dir}")
+
+        masks = {}
+        for mask_file in mask_files:
+            # Read image in grayscale
+            mask = cv2.imread(str(mask_file), cv2.IMREAD_GRAYSCALE)
+            if mask is None:
+                logger.warning(f"Could not read mask file: {mask_file}")
+                continue
+
+            # Resize if needed
+            if target_size is not None:
+                mask = cv2.resize(mask, (target_size[1], target_size[0]))  # cv2 uses (w,h)
+
+            # Threshold to create binary mask
+            _, mask = cv2.threshold(mask, threshold, 255, cv2.THRESH_BINARY)
+
+            # Convert to boolean
+            mask = mask.astype(bool)
+
+            # Use stem (filename without extension) as key
+            mask_name = mask_file.stem
+            masks[mask_name] = mask
+
+            logger.debug(
+                f"Loaded mask '{mask_name}' from {mask_file.name} "
+                f"(size: {mask.shape}, coverage: {np.mean(mask):.1%})"
+            )
+
+        logger.info(f"Loaded {len(masks)} masks from {mask_dir}")
+        return masks
+
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
@@ -311,4 +373,34 @@ if __name__ == "__main__":
         ("Thick", mask_gen.generate(test_image, "brush", stroke_width=8)),
     ]
     fig = plot_masks(test_image, brush_masks, "Brush Masks")
+    plt.show()
+
+    # Test loading custom masks
+    test_mask_dir = Path("data/test_outputs/custom_masks")
+    test_mask_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create some test masks and save them
+    test_cases = [
+        ("custom_circle", cv2.circle(np.zeros((64, 64), dtype=np.uint8), (32, 32), 20, 255, -1)),
+        (
+            "custom_rect",
+            cv2.rectangle(np.zeros((64, 64), dtype=np.uint8), (10, 10), (50, 50), 255, -1),
+        ),
+    ]
+
+    for name, mask in test_cases:
+        cv2.imwrite(str(test_mask_dir / f"{name}.png"), mask)
+
+    # Test loading them back
+    loaded_masks = MaskGenerator.load_masks_from_directory(
+        test_mask_dir,
+        target_size=(128, 128),  # Test resizing
+    )
+
+    # Visualize loaded masks
+    fig = plot_masks(
+        test_image,
+        [(name, mask.astype(np.uint8) * 255) for name, mask in loaded_masks.items()],
+        "Loaded Custom Masks",
+    )
     plt.show()
