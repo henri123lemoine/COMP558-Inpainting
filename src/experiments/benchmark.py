@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 from src.algorithms.base import Image, InpaintingAlgorithm, Mask
 from src.datasets.images import InpaintingDataset
+from src.datasets.utils import ImageCategory
 from src.experiments.utils.metrics import InpaintingMetrics
 from src.experiments.utils.visualization import (
     create_error_heatmap,
@@ -86,25 +87,36 @@ class InpaintingBenchmark:
             mask_types=["center", "random", "brush", "text"],
         )
 
-        all_samples = {**synthetic_samples, **real_samples}
+        try:
+            custom_samples = self.dataset.load_custom_dataset(
+                target_size=(self.config.synthetic_size, self.config.synthetic_size)
+            )
+            logger.info(f"Loaded {len(custom_samples)} custom test cases")
+        except Exception as e:
+            logger.warning(f"Could not load custom dataset: {e}")
+            custom_samples = {}
+
+        all_samples = {**synthetic_samples, **real_samples, **custom_samples}
         logger.info(f"Running benchmark on {len(all_samples)} test cases")
 
-        # Note: case_name now includes the mask type (e.g. "lines_center", "real_0_brush")
         for case_name, sample in tqdm(all_samples.items(), desc="Test cases"):
-            base_name, mask_type = case_name.rsplit("_", 1)
+            base_name = case_name
+            mask_type = (
+                "custom" if sample.category == ImageCategory.CUSTOM else case_name.rsplit("_", 1)[1]
+            )
 
             algorithm_results = {}
             for algorithm in algorithms:
-                logger.debug(f"Running {algorithm.name} on {base_name} with {mask_type} mask")
+                logger.debug(f"Running {algorithm.name} on {base_name}")
 
                 try:
                     start_time = time.time()
-                    # Note: Images are already properly scaled in InpaintSample
                     result = algorithm.inpaint(
-                        # sample.original.astype(np.float32) / 255.0,
                         sample.masked / 255.0,
                         sample.mask.astype(np.float32) / 255.0,
                     )
+                    result = np.nan_to_num(result, nan=0.0)
+                    result = np.clip(result, 0, 1)
                     result = (result * 255).astype(np.uint8)
                     exec_time = time.time() - start_time
 
@@ -127,23 +139,21 @@ class InpaintingBenchmark:
                         }
                     )
 
-                    # Save individual results if requested
                     if self.config.save_individual:
                         self._save_individual_result(
-                            algorithm.name,
-                            base_name,
-                            mask_type,
-                            sample.original,
-                            sample.mask,
-                            result,
-                            metrics,
+                            algorithm_name=algorithm.name,
+                            case_name=base_name,
+                            mask_name=mask_type,
+                            image=sample.original,
+                            mask=sample.mask,
+                            result=result,
+                            metrics=metrics,
                         )
 
                 except Exception as e:
                     logger.error(f"Error processing {case_name} with {algorithm.name}: {str(e)}")
                     continue
 
-            # Generate comparisons if we have results
             if algorithm_results and self.config.save_comparisons:
                 self._save_comparison(
                     base_name, mask_type, sample.original, sample.mask, algorithm_results
