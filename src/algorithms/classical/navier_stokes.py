@@ -42,8 +42,26 @@ class NavierStokesInpainting(InpaintingAlgorithm):
             raise ValueError("Navier-Stokes inpainting requires a grayscale image.")
 
         height, width = image.shape
-        smoothness = self.compute_laplacian(image, mask)
-        v_x, v_y = self.compute_gradients(image, mask)
+        working_image = np.copy(image)
+        nan_mask = np.isnan(working_image)
+
+        for i in range(height):
+            for j in range(width):
+                if nan_mask[i, j]:
+                    neighbors = []
+                    for di in [-1, 0, 1]:
+                        for dj in [-1, 0, 1]:
+                            if (
+                                0 <= i + di < height
+                                and 0 <= j + dj < width
+                                and not nan_mask[i + di, j + dj]
+                            ):
+                                neighbors.append(working_image[i + di, j + dj])
+                    working_image[i, j] = np.mean(neighbors) if neighbors else 0.5
+
+        # Now proceed with Navier-Stokes
+        smoothness = self.compute_laplacian(working_image, mask)
+        v_x, v_y = self.compute_gradients(working_image, mask)
 
         for iteration in tqdm(range(self.params.max_iter), "Navier-Stokes"):
             smoothness_x, smoothness_y = self.compute_gradients(smoothness, mask)
@@ -54,7 +72,9 @@ class NavierStokesInpainting(InpaintingAlgorithm):
             smoothness_new = smoothness + self.params.dt * (
                 -v_x * smoothness_x - v_y * smoothness_y + self.params.nu * diffusion
             )
-            smoothness_new[mask == 0] = self.compute_laplacian(image, mask)[mask == 0]
+
+            # Only update smoothness in the masked region
+            smoothness_new[~nan_mask] = self.compute_laplacian(working_image, mask)[~nan_mask]
 
             b = smoothness_new.flatten()
             data, row, col = [], [], []
@@ -62,7 +82,12 @@ class NavierStokesInpainting(InpaintingAlgorithm):
             for i in range(height):
                 for j in range(width):
                     index = i * width + j
-                    if mask[i, j] > 0:
+                    if not nan_mask[i, j]:
+                        row.append(index)
+                        col.append(index)
+                        data.append(1)
+                        b[index] = working_image[i, j]
+                    else:
                         indices, values = [], []
                         indices.append(index)
                         values.append(4)
@@ -82,19 +107,14 @@ class NavierStokesInpainting(InpaintingAlgorithm):
                         row.extend([index] * len(indices))
                         col.extend(indices)
                         data.extend(values)
-                    else:
-                        row.append(index)
-                        col.append(index)
-                        data.append(1)
-                        b[index] = image[i, j]
 
             A = coo_matrix((data, (row, col)), shape=(height * width, height * width))
-            I_flat = spsolve(A.tocsr(), b)
-            image = I_flat.reshape(height, width)
-            image = np.clip(image, 0, 1)
+            result_flat = spsolve(A.tocsr(), b)
+            working_image = result_flat.reshape(height, width)
+            working_image = np.clip(working_image, 0, 1)
 
-            smoothness = self.compute_laplacian(image, mask)
-            v_x, v_y = self.compute_gradients(image, mask)
+            smoothness = self.compute_laplacian(working_image, mask)
+            v_x, v_y = self.compute_gradients(working_image, mask)
 
             # Convergence check
             if iteration % 10 == 0 or iteration == self.params.max_iter - 1:
@@ -102,7 +122,7 @@ class NavierStokesInpainting(InpaintingAlgorithm):
                 if change < 1e-6:
                     break
 
-        return image
+        return working_image
 
     def compute_gradients(self, image: Image, mask: Mask) -> tuple[Image, Image]:
         """Compute gradients Ix and Iy using finite differences."""
