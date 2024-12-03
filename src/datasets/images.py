@@ -244,7 +244,7 @@ class InpaintingDataset:
 
     def load_images_from_directory(
         self,
-        image_dir: Path | str = "test_images/",
+        image_dir: Path | str = "test-images/",
         target_size: tuple[int, int] | None = None,
         mask_types: List[str] = ["center", "random", "brush", "text"],
     ) -> Dict[str, InpaintSample]:
@@ -406,35 +406,14 @@ if __name__ == "__main__":
     assert not np.any(np.isnan(sample.original)), "Original image should not contain NaN values"
 
     # Test loading custom images
-    custom_dir = save_dir / "custom_test"
-    custom_dir.mkdir(exist_ok=True)
-
-    # Save some test images
-    for name, func in [
-        (
-            "custom_gradient",
-            lambda: np.linspace(0, 255, size * size).reshape(size, size).astype(np.uint8),
-        ),
-        (
-            "custom_circle",
-            lambda: cv2.circle(
-                np.zeros((size, size), dtype=np.uint8), (size // 2, size // 2), size // 3, 255, -1
-            ),
-        ),
-    ]:
-        cv2.imwrite(str(custom_dir / f"{name}.png"), func())
-
-    # Test loading custom images
-    custom_samples = dataset.load_images_from_directory(
-        custom_dir,
-        target_size=(64, 64),  # Test resizing
-        mask_types=["center", "text"],  # Test subset of mask types
+    custom_samples = dataset.load_images_from_directory(  # uses default
+        target_size=(128, 128),
+        mask_types=["center", "text"],
     )
 
-    # Plot some custom samples
     for case_name, sample in custom_samples.items():
         fig = plot_sample(sample, f"Custom: {case_name}")
-        fig.savefig(save_dir / f"test_custom_{case_name}.png", bbox_inches="tight", dpi=150)
+        fig.savefig(save_dir / f"test_custom_{case_name}.png", bbox_inches="tight", dpi=300)
         plt.close()
 
         logger.info(f"Generated visualization for custom sample {case_name}")

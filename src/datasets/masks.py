@@ -246,7 +246,7 @@ class MaskGenerator:
 
     @staticmethod
     def load_masks_from_directory(
-        mask_dir: Path | str = "test_images/masks/",
+        mask_dir: Path | str = "test-images/masks/",
         target_size: tuple[int, int] | None = None,
         threshold: int = 127,
         recursive: bool = True,
