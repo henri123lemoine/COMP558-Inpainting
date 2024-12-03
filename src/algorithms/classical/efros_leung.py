@@ -145,7 +145,6 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         window_size = self.params.window_size
         height, width = image.shape[:2]
 
-        # Only search in non-masked regions
         search_positions = list(zip(*np.where(~mask)))
 
         if not search_positions:
@@ -327,4 +326,4 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
 
 if __name__ == "__main__":
     inpainter = EfrosLeungInpainting()
-    inpainter.run_example(scale_factor=0.5)
+    inpainter.run_example(scale_factor=0.25)
