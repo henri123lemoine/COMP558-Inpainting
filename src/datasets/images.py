@@ -383,6 +383,8 @@ class InpaintingDataset:
 
 
 if __name__ == "__main__":
+    import argparse
+
     import matplotlib.pyplot as plt
 
     from src.settings import DATA_PATH
@@ -405,32 +407,30 @@ if __name__ == "__main__":
         plt.tight_layout()
         return fig
 
-    save_dir = DATA_PATH / "test_images"
+    # Setup argument parser
+    parser = argparse.ArgumentParser(description="Test different dataset functionalities")
+    parser.add_argument(
+        "test_type",
+        type=str,
+        choices=["synthetic", "custom", "all"],
+        help="Type of test to run: synthetic, custom, or all",
+    )
+    parser.add_argument(
+        "--size", type=int, default=256, help="Size of images to generate/resize to (default: 256)"
+    )
+    parser.add_argument(
+        "--save-dir",
+        type=str,
+        default=None,
+        help="Directory to save test outputs (default: DATA_PATH/test_images)",
+    )
+    args = parser.parse_args()
+
+    # Setup save directory
+    save_dir = Path(args.save_dir) if args.save_dir else DATA_PATH / "test_images"
     save_dir.mkdir(exist_ok=True)
 
-    # First, test individual image generation
-    generator = ImageGenerator()
-    size = 128
-
-    for name, func in [
-        ("Line", generator.create_line_image),
-        ("Shape", generator.create_shape_image),
-        ("Curve", generator.create_curve_image),
-        ("Checker", generator.create_checker_image),
-        ("Dots", generator.create_dot_pattern),
-        ("Noise", generator.create_noise_pattern),
-        ("Linear", generator.create_linear_gradient),
-        ("Radial", generator.create_radial_gradient),
-    ]:
-        img = func(size)
-        plt.figure(figsize=(4, 4))
-        plt.imshow(img, cmap="gray")
-        plt.title(f"{name} Pattern")
-        plt.axis("off")
-        plt.savefig(save_dir / f"test_{name.lower()}.png", bbox_inches="tight", dpi=150)
-        plt.close()
-
-    # Now test the full dataset generation pipeline
+    # Initialize dataset with common configuration
     dataset = InpaintingDataset(
         save_dir / "dataset",
         mask_config=MaskConfig(
@@ -439,59 +439,65 @@ if __name__ == "__main__":
         save_samples=True,
     )
 
-    synthetic_samples = dataset.generate_synthetic_dataset(
-        size=128, force_regenerate=True, mask_types=["center", "random", "brush", "text"]
-    )
+    def test_synthetic():
+        """Test synthetic image generation"""
+        logger.info("Testing synthetic image generation...")
 
-    real_samples = dataset.load_real_dataset(
-        n_images=5, size=128, mask_types=["center", "random", "brush", "text"]
-    )
+        # Test individual image generation
+        generator = ImageGenerator()
 
-    custom_samples = dataset.load_images_from_directory(
-        target_size=(512, 512),
-        mask_types=["center", "text"],
-    )
+        for name, func in [
+            ("Line", generator.create_line_image),
+            ("Shape", generator.create_shape_image),
+            ("Curve", generator.create_curve_image),
+            ("Checker", generator.create_checker_image),
+            ("Dots", generator.create_dot_pattern),
+            ("Noise", generator.create_noise_pattern),
+            ("Linear", generator.create_linear_gradient),
+            ("Radial", generator.create_radial_gradient),
+        ]:
+            img = func(args.size)
+            plt.figure(figsize=(4, 4))
+            plt.imshow(img, cmap="gray")
+            plt.title(f"{name} Pattern")
+            plt.axis("off")
+            plt.savefig(save_dir / f"test_{name.lower()}.png", bbox_inches="tight", dpi=150)
+            plt.close()
+            logger.info(f"Generated {name} pattern")
 
-    categories = {
-        ImageCategory.STRUCTURE: ["lines", "shapes", "curves"],
-        ImageCategory.TEXTURE: ["checkerboard", "dots", "noise"],
-        ImageCategory.GRADIENT: ["linear_gradient", "radial_gradient"],
-        ImageCategory.REAL: ["real_0", "real_1"],
-        ImageCategory.CUSTOM: list(custom_samples.keys()),
-    }
+        # Test full synthetic dataset generation
+        synthetic_samples = dataset.generate_synthetic_dataset(
+            size=args.size, force_regenerate=True, mask_types=["center", "random", "brush", "text"]
+        )
 
-    for category, cases in categories.items():
-        for case in cases:
-            # Find first matching sample for this case
-            sample = next(
-                (s for name, s in synthetic_samples.items() if case in name),
-                next((s for name, s in real_samples.items() if case in name), None),
-            )
+        # Verify samples
+        sample = next(iter(synthetic_samples.values()))
+        assert np.any(np.isnan(sample.masked)), "Masked image should contain NaN values"
+        assert not np.any(np.isnan(sample.original)), "Original image should not contain NaN values"
 
-            if sample:
-                fig = plot_sample(sample, f"{category.name}: {case}")
-                fig.savefig(save_dir / f"test_sample_{case}.png", bbox_inches="tight", dpi=150)
-                plt.close()
+        logger.info("Synthetic tests completed successfully!")
 
-                logger.info(f"Generated visualization for {case}")
+    def test_custom():
+        """Test custom dataset loading"""
+        logger.info("Testing custom dataset loading with existing masks...")
 
-    logger.info(f"Generated test visualizations in {save_dir}")
+        custom_samples = dataset.load_custom_dataset(
+            image_dir="test-images",
+            mask_dir="test-images/masks",
+            target_size=(args.size, args.size),
+        )
 
-    sample = next(iter(synthetic_samples.values()))
-    assert np.any(np.isnan(sample.masked)), "Masked image should contain NaN values"
-    assert not np.any(np.isnan(sample.original)), "Original image should not contain NaN values"
+        for case_name, sample in custom_samples.items():
+            fig = plot_sample(sample, f"Custom: {case_name}")
+            fig.savefig(save_dir / f"test_custom_{case_name}.png", bbox_inches="tight", dpi=300)
+            plt.close()
+            logger.info(f"Generated visualization for custom sample {case_name}")
 
-    # Test loading custom images
-    custom_samples = dataset.load_images_from_directory(  # uses default
-        target_size=(128, 128),
-        mask_types=["center", "text"],
-    )
+        logger.info("Custom dataset tests completed successfully!")
 
-    for case_name, sample in custom_samples.items():
-        fig = plot_sample(sample, f"Custom: {case_name}")
-        fig.savefig(save_dir / f"test_custom_{case_name}.png", bbox_inches="tight", dpi=300)
-        plt.close()
+    # Run selected tests
+    if args.test_type == "synthetic" or args.test_type == "all":
+        test_synthetic()
 
-        logger.info(f"Generated visualization for custom sample {case_name}")
-
-    logger.info("All tests completed successfully!")
+    if args.test_type == "custom" or args.test_type == "all":
+        test_custom()
