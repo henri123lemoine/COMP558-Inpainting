@@ -239,7 +239,7 @@ class InpaintingAlgorithm(ABC):
             raise FileNotFoundError(f"Error: Could not read the mask file at {mask_path}")
 
         if mask.shape != image.shape:
-            print(f"Resizing mask from {mask.shape} to {image.shape}...")
+            logger.debug(f"Resizing mask from {mask.shape} to {image.shape}...")
             mask = cv2.resize(
                 mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST
             )
@@ -249,7 +249,7 @@ class InpaintingAlgorithm(ABC):
             image = cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
             mask = cv2.resize(mask, new_size, interpolation=cv2.INTER_NEAREST)
 
-        print(f"Working with image size: {image.shape}")
+        logger.debug(f"Working with image size: {image.shape}")
 
         original, masked, mask, inpainted = self.inpaint(image, mask)
 

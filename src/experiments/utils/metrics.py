@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import cv2
 import numpy as np
+from loguru import logger
 from scipy.stats import wasserstein_distance
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
@@ -99,8 +100,8 @@ if __name__ == "__main__":
         original=original, result=result, mask=mask, execution_time=0.1
     )
 
-    print("Test Metrics:")
-    print(
+    logger.debug("Test Metrics:")
+    logger.debug(
         metrics.get_summary()
     )  # Interesintg observation: RESULTS ARE PRETTY BAD! This makes sense. Inpainting is not trivial!
 

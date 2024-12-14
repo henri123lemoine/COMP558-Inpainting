@@ -102,7 +102,6 @@ class InpaintingBenchmark:
                         mask=mask,
                         execution_time=exec_time,
                     )
-                    # print(metrics.get_summary())
 
                     algorithm_results[algorithm.name] = {"result": result, "metrics": metrics}
 
@@ -390,9 +389,9 @@ if __name__ == "__main__":
     algorithms = [
         # LamaInpainting(),
         # LCMInpainting(),
-        EfrosLeungInpainting(window_size=3),
-        NavierStokesInpainting(max_iter=50),
-        PatchMatchInpainting(patch_size=7, num_iterations=50),
+        EfrosLeungInpainting(window_size=5, error_threshold=0.4, sigma=1.0),
+        NavierStokesInpainting(max_iter=100, dt=0.05, nu=0.15, K=2.5),
+        PatchMatchInpainting(patch_size=5, num_iterations=3, search_ratio=0.6, alpha=0.15),
     ]
 
     synthetic_samples = benchmark.dataset.generate_synthetic_dataset(
@@ -408,6 +407,4 @@ if __name__ == "__main__":
 
     logger.info(f"Running benchmark on {len(all_samples)} test cases")
     results_df = benchmark.run(algorithms, samples=all_samples)
-    print("\nFinal results:")
-    print(results_df)
     logger.info("Benchmark completed! Results saved to data/benchmark_results/")

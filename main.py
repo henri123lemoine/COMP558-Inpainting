@@ -46,6 +46,4 @@ if __name__ == "__main__":
 
     logger.info(f"Running benchmark on {len(all_samples)} test cases")
     results_df = benchmark.run(algorithms, samples=all_samples)
-    print("\nFinal results:")
-    print(results_df)
     logger.info("Benchmark completed! Results saved to data/benchmark_results/")

@@ -427,7 +427,6 @@ if __name__ == "__main__":
 
     cv2.imwrite("mask.png", mask)
     coverage = np.mean(mask > 0)
-    print(f"Mask coverage: {coverage:.1%}")
 
     plt.figure(figsize=(10, 5))
     plt.subplot(121)
