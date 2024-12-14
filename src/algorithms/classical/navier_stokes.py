@@ -10,10 +10,10 @@ from src.algorithms.base import Image, InpaintingAlgorithm, Mask
 
 @dataclass(frozen=True)
 class NavierStokesParams:
-    max_iter: int = 300
-    dt: float = 0.05
-    nu: float = 0.1
-    K: float = 2.0
+    max_iter: int
+    dt: float
+    nu: float
+    K: float
 
 
 class NavierStokesInpainting(InpaintingAlgorithm):
@@ -27,7 +27,7 @@ class NavierStokesInpainting(InpaintingAlgorithm):
     `https://www.math.ucla.edu/~bertozzi/papers/cvpr01.pdf`
     """
 
-    def __init__(self, max_iter: int = 300, dt: float = 0.025, nu: float = 0.1, K: float = 2.0):
+    def __init__(self, max_iter: int = 1000, dt: float = 0.025, nu: float = 0.1, K: float = 2.0):
         super().__init__(name="Navier-Stokes")
         self.params = NavierStokesParams(
             max_iter=max_iter,
