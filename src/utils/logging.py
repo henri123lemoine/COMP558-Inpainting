@@ -12,6 +12,7 @@ def setup_logger(level: str = "INFO") -> None:
         sys.stderr,
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <5}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
         level=level,
+        enqueue=True,
     )
     logger.add(
         LATEST_LOGS_FILE_PATH,
@@ -19,4 +20,7 @@ def setup_logger(level: str = "INFO") -> None:
         level=level,
         rotation="1 day",
         retention="1 month",
+        enqueue=True,
+        backtrace=True,
+        diagnose=True,
     )
