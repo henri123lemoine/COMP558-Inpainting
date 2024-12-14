@@ -10,16 +10,20 @@ from matplotlib.gridspec import GridSpec
 def plot_inpainting_result(
     original: np.ndarray,
     mask: np.ndarray,
-    result: np.ndarray,  # Inpainted result
-    save_path: str | Path | None = None,
+    result: np.ndarray,
+    save_path: str | None = None,
     title: str | None = None,
-    figsize: tuple[int, int] = (15, 5),
-    metrics: Any | None = None,  # Optional metrics to display
+    figsize: tuple[int, int] = (12, 4),
+    metrics: Any | None = None,
+    show_histogram: bool = False,
 ) -> None:
-    """Plot original, mask, and inpainted result side by side."""
-    # Create figure with gridspec for flexible layout
-    fig = plt.figure(figsize=figsize)
-    gs = GridSpec(2, 3, height_ratios=[4, 1])
+    """Plot original, mask, and inpainted result side by side with optional histogram."""
+    if show_histogram:
+        fig = plt.figure(figsize=(figsize[0], figsize[1] * 1.5))
+        gs = GridSpec(2, 3, height_ratios=[4, 1])
+    else:
+        fig = plt.figure(figsize=figsize)
+        gs = GridSpec(1, 3)
 
     if title:
         fig.suptitle(title, fontsize=12, y=0.95)
@@ -39,17 +43,23 @@ def plot_inpainting_result(
     # Plot result
     ax_result = fig.add_subplot(gs[0, 2])
     ax_result.imshow(result, cmap="gray" if len(result.shape) == 2 else None)
-    ax_result.set_title("Inpainted Result")
+    ax_result.set_title("Result")
     ax_result.axis("off")
 
-    # Add metrics if provided
     if metrics is not None:
-        metrics_text = "\n".join(f"{k}: {v:.4f}" for k, v in metrics.to_dict().items())
-        fig.text(0.1, 0.15, metrics_text, fontsize=10, family="monospace")
+        key_metrics = {
+            "PSNR": metrics.psnr,
+            "SSIM": metrics.ssim,
+            "Edge": metrics.edge_error,
+            "Time": metrics.execution_time,
+        }
+        metrics_text = " | ".join(f"{k}: {v:.2f}" for k, v in key_metrics.items())
+        fig.text(0.5, 0.02, metrics_text, ha="center", fontsize=10, family="monospace")
 
-    # Add histogram comparison
-    ax_hist = fig.add_subplot(gs[1, :])
-    _plot_histograms(original, result, mask, ax_hist)
+    # Add histogram comparison if requested
+    if show_histogram:
+        ax_hist = fig.add_subplot(gs[1, :])
+        _plot_histograms(original, result, mask, ax_hist)
 
     plt.tight_layout()
 
@@ -62,68 +72,67 @@ def plot_inpainting_result(
 
 def plot_multiple_results(
     results_dict: dict[str, dict[str, np.ndarray]],
-    save_path: str | Path | None = None,
+    save_path: str | None = None,
     figsize: tuple[int, int] | None = None,
-    metrics_dict: dict[str, Any] | None = None,  # Optional dictionary of metrics for each algorithm
+    metrics_dict: dict[str, Any] | None = None,
+    show_histogram: bool = False,
 ) -> None:
-    """Plot results from multiple algorithms side by side.
-
-    results_dict: Dictionary of results in the format:
-        {
-            'algorithm_name': {
-                'original': original_image,
-                'mask': mask_image,
-                'result': result_image
-            }
-        }
-    """
+    """Plot results from multiple algorithms in a clean, organized layout."""
     n_algorithms = len(results_dict)
+
+    # Get first result to determine if images are grayscale
+    first_result = next(iter(results_dict.values()))
+    is_grayscale = len(first_result["original"].shape) == 2
+
+    # Calculate figure size if not provided
     if not figsize:
-        figsize = (15, 5 * n_algorithms)
+        base_height = 3
+        total_height = base_height * (n_algorithms + 1)  # +1 for original and mask
+        figsize = (12, total_height)
 
     fig = plt.figure(figsize=figsize)
-    gs = GridSpec(n_algorithms * 2, 3, height_ratios=[4, 1] * n_algorithms)
 
-    for idx, (name, images) in enumerate(results_dict.items()):
-        row = idx * 2
+    # Create grid: top row for original + mask, then one row per algorithm
+    n_rows = n_algorithms + 1
+    if show_histogram:
+        gs = GridSpec(n_rows * 2, 2, height_ratios=[1, 0.3] * n_rows)
+    else:
+        gs = GridSpec(n_rows, 2)
 
-        # Plot original
-        ax_orig = fig.add_subplot(gs[row, 0])
-        ax_orig.imshow(
-            images["original"], cmap="gray" if len(images["original"].shape) == 2 else None
-        )
-        ax_orig.set_title("Original" if idx == 0 else "")
-        ax_orig.axis("off")
+    # Plot original and mask in first row
+    ax_orig = fig.add_subplot(gs[0, 0])
+    ax_orig.imshow(first_result["original"], cmap="gray" if is_grayscale else None)
+    ax_orig.set_title("Original Image")
+    ax_orig.axis("off")
 
-        # Plot mask
-        ax_mask = fig.add_subplot(gs[row, 1])
-        ax_mask.imshow(images["mask"], cmap="gray")
-        ax_mask.set_title("Mask" if idx == 0 else "")
-        ax_mask.axis("off")
+    ax_mask = fig.add_subplot(gs[0, 1])
+    ax_mask.imshow(first_result["mask"], cmap="gray")
+    ax_mask.set_title("Mask")
+    ax_mask.axis("off")
 
-        # Plot result
-        ax_result = fig.add_subplot(gs[row, 2])
-        ax_result.imshow(
-            images["result"], cmap="gray" if len(images["result"].shape) == 2 else None
-        )
-        ax_result.set_title("Result" if idx == 0 else "")
-        ax_result.axis("off")
+    # Plot each algorithm's result
+    for idx, (name, images) in enumerate(results_dict.items(), 1):
+        row = idx * (2 if show_histogram else 1)
 
-        # Add algorithm name
-        ax_orig.set_ylabel(name, size="large", rotation=0, labelpad=50)
+        # Result
+        ax_result = fig.add_subplot(gs[row, :])
+        ax_result.imshow(images["result"], cmap="gray" if is_grayscale else None)
 
         # Add metrics if provided
         if metrics_dict and name in metrics_dict:
-            metrics_text = "\n".join(
-                f"{k}: {v:.4f}" for k, v in metrics_dict[name].to_dict().items()
-            )
-            fig.text(
-                0.7, 1 - (idx + 0.5) / n_algorithms, metrics_text, fontsize=8, family="monospace"
-            )
+            metrics = metrics_dict[name]
+            metrics_text = f"PSNR: {metrics.psnr:.2f} | SSIM: {metrics.ssim:.2f} | "
+            metrics_text += f"Edge: {metrics.edge_error:.2f} | Time: {metrics.execution_time:.2f}s"
+            ax_result.set_title(f"{name}\n{metrics_text}", pad=10)
+        else:
+            ax_result.set_title(name, pad=10)
 
-        # Add histogram comparison
-        ax_hist = fig.add_subplot(gs[row + 1, :])
-        _plot_histograms(images["original"], images["result"], images["mask"], ax_hist)
+        ax_result.axis("off")
+
+        # Add histogram if requested
+        if show_histogram:
+            ax_hist = fig.add_subplot(gs[row + 1, :])
+            _plot_histograms(images["original"], images["result"], images["mask"], ax_hist)
 
     plt.tight_layout()
 
@@ -175,32 +184,6 @@ def _plot_histograms(
     ax.set_xlabel("Pixel Value")
     ax.set_ylabel("Density")
     ax.legend(fontsize="small")
-
-
-def plot_convergence(
-    metrics_history: list[dict[str, float]],  # List of metric dictionaries for each iteration
-    save_path: str | Path | None = None,
-    figsize: tuple[int, int] = (10, 6),
-) -> None:
-    """Plot convergence of metrics during inpainting."""
-    _, axes = plt.subplots(2, 2, figsize=figsize)
-    axes = axes.ravel()
-
-    metrics = list(metrics_history[0].keys())
-    for idx, metric in enumerate(metrics):
-        values = [m[metric] for m in metrics_history]
-        axes[idx].plot(values, marker="o")
-        axes[idx].set_xlabel("Iteration")
-        axes[idx].set_ylabel(metric)
-        axes[idx].grid(True)
-
-    plt.tight_layout()
-
-    if save_path:
-        plt.savefig(save_path, bbox_inches="tight", dpi=300)
-        logger.debug(f"Saved convergence plot to {save_path}")
-
-    plt.close()
 
 
 def create_error_heatmap(
