@@ -163,10 +163,10 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         mask: Mask,
     ) -> NNField:
         """Initialize nearest-neighbor field with multiple initialization strategies."""
-        h, w = image.shape
+        h, w = image.shape[:2]
         nn_field = np.zeros((h, w, 2), dtype=np.int32)
 
-        # Get valid source regions
+        # Get valid source regions (mask is always 2D)
         source_y, source_x = np.where(mask == 0)
         if len(source_y) == 0:
             raise ValueError("No valid source regions found in mask")
@@ -219,7 +219,7 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         reverse: bool = False,
     ) -> None:
         """Propagate good matches to neighboring pixels, checking all directions."""
-        h, w = image.shape
+        h, w = image.shape[:2]
         y_range = range(h - 1, -1, -1) if reverse else range(h)
         x_range = range(w - 1, -1, -1) if reverse else range(w)
 
@@ -279,7 +279,7 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         nn_field: NNField,
     ) -> None:
         """Perform random search around current best match."""
-        h, w = image.shape
+        h, w = image.shape[:2]
         max_radius = max(h, w)
 
         for y in range(h):
