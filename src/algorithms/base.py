@@ -277,7 +277,21 @@ class InpaintingAlgorithm(ABC):
         plt.axis("off")
 
         plt.subplot(1, 4, 2)
-        plt.imshow(masked, cmap="gray" if len(masked.shape) == 2 else None)
+        # Create a properly masked array for visualization
+        if len(masked.shape) == 3:
+            # For color images, handle each channel
+            masked_viz = np.ma.masked_array(masked, mask=np.isnan(masked))
+            # Use last observation carried forward to fill NaN values for display
+            for c in range(masked.shape[2]):
+                channel = masked[..., c]
+                mask = np.isnan(channel)
+                masked_viz[..., c] = np.where(mask, 0.5, channel)  # Use mid-gray for masked regions
+        else:
+            # For grayscale
+            masked_viz = np.ma.masked_array(masked, mask=np.isnan(masked))
+            masked_viz = np.where(np.isnan(masked), 0.5, masked)  # Use mid-gray for masked regions
+
+        plt.imshow(masked_viz, cmap="gray" if len(masked.shape) == 2 else None)
         plt.title("Masked Image")
         plt.axis("off")
 
