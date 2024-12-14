@@ -371,6 +371,9 @@ if __name__ == "__main__":
         NavierStokesInpainting,
         PatchMatchInpainting,
     )
+    from src.utils.logging import setup_logger
+
+    setup_logger()
 
     image_size = 64
     config = BenchmarkConfig(
