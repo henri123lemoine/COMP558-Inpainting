@@ -160,7 +160,7 @@ def plot_metrics_by_category(
         sns.boxplot(data=results, x="Category", y=metric, hue="Algorithm", ax=ax)
         ax.set_title(metric)
         ax.tick_params(axis="x", rotation=45)
-        if metric != "Time (s)":
+        if metric not in ["Time (s)", "Edge Error"]:
             ax.text(
                 0.98,
                 0.98,
@@ -212,7 +212,7 @@ def plot_metrics_distribution(
         ax.set_title(f"{metric} Distribution")
         ax.legend(title="Algorithm")
 
-        if metric != "Time (s)":
+        if metric not in ["Time (s)", "Edge Error"]:
             ax.text(
                 0.98,
                 0.98,
