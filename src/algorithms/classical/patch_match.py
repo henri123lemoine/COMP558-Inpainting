@@ -350,9 +350,9 @@ class PatchMatchInpainting(InpaintingAlgorithm):
             )
 
         # Debug prints to understand input values
-        logger.info(f"Initial image range: [{np.min(image):.3f}, {np.max(image):.3f}]")
-        logger.info(f"Mask range: [{np.min(mask):.3f}, {np.max(mask):.3f}]")
-        logger.info(f"Mask sum: {np.sum(mask > 0)} pixels to inpaint")
+        logger.debug(f"Initial image range: [{np.min(image):.3f}, {np.max(image):.3f}]")
+        logger.debug(f"Mask range: [{np.min(mask):.3f}, {np.max(mask):.3f}]")
+        logger.debug(f"Mask sum: {np.sum(mask > 0)} pixels to inpaint")
 
         # Initialize result image - ensure we start with the correct values
         result = image.copy()
@@ -416,8 +416,8 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         # Ensure we haven't modified unmasked regions
         result[mask == 0] = image[mask == 0]
 
-        logger.info("PatchMatch inpainting completed")
-        logger.info(f"Final result range: [{np.min(result):.3f}, {np.max(result):.3f}]")
+        logger.debug("PatchMatch inpainting completed")
+        logger.debug(f"Final result range: [{np.min(result):.3f}, {np.max(result):.3f}]")
         return result
 
 
