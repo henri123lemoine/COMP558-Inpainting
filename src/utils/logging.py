@@ -5,9 +5,9 @@ from loguru import logger
 from src.settings import LATEST_LOGS_FILE_PATH
 
 
-def worker_init():
+def worker_init(level: str) -> None:
     """Initialize worker process with correct logging setup."""
-    setup_logger()
+    setup_logger(level)
 
 
 def setup_logger(level: str = "INFO") -> None:

@@ -1,5 +1,6 @@
 import time
 from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from src.experiments.utils.visualization import (
     plot_multiple_results,
 )
 from src.settings import DATA_PATH
+from src.utils.logging import worker_init
 
 FIGSIZE: tuple[int, int] = (15, 10)
 DPI: int = 300
@@ -54,11 +56,15 @@ class InpaintingBenchmark:
         sns.set_context("paper")
 
     def run(
-        self, algorithms: list[InpaintingAlgorithm], samples: dict[str, InpaintSample]
+        self,
+        algorithms: list[InpaintingAlgorithm],
+        samples: dict[str, InpaintSample],
+        log_level: str = "INFO",
     ) -> pd.DataFrame:
         """Run complete benchmark suite."""
         results = []
-        with ProcessPoolExecutor() as executor:
+        worker_initializer = partial(worker_init, level=log_level)
+        with ProcessPoolExecutor(initializer=worker_initializer) as executor:
             futures = [
                 executor.submit(self._process_test_case, case_name, sample, algorithms, [])
                 for case_name, sample in samples.items()
@@ -200,7 +206,7 @@ if __name__ == "__main__":
     from src.algorithms import EfrosLeungInpainting, NavierStokesInpainting, PatchMatchInpainting
     from src.utils.logging import setup_logger
 
-    setup_logger("INFO")
+    setup_logger(level="INFO")
     logger.info("Starting experiments")
 
     REAL_IMAGE_SIZE = 64
