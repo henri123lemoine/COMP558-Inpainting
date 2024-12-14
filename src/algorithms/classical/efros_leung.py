@@ -37,8 +37,8 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
 
     def __init__(
         self,
-        window_size: int = 7,
-        error_threshold: float = 0.3,
+        window_size: int = 13,
+        error_threshold: float = 0.25,
         sigma: float = 1.5,
     ):
         super().__init__("EfrosLeung")
