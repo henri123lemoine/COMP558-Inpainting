@@ -184,11 +184,18 @@ class InpaintingDataset:
         size: int = 128,
         force_regenerate: bool = False,
         mask_types: List[str] = ["center", "random", "brush", "text"],
+        selected_cases: list[str] | None = None,
     ) -> Dict[str, InpaintSample]:
         """Generate synthetic test cases."""
         dataset = {}
 
-        for case_name, (gen_func, category) in self.SYNTHETIC_IMAGES.items():
+        cases_to_generate = (
+            {k: v for k, v in self.SYNTHETIC_IMAGES.items() if k in selected_cases}
+            if selected_cases
+            else self.SYNTHETIC_IMAGES
+        )
+
+        for case_name, (gen_func, category) in cases_to_generate.items():
             case_dir = self.synthetic_dir / str(category.name).lower() / case_name
             if self.save_samples:
                 case_dir.mkdir(parents=True, exist_ok=True)
