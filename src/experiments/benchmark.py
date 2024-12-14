@@ -15,6 +15,7 @@ from src.datasets.utils import ImageCategory
 from src.experiments.utils.metrics import InpaintingMetrics
 from src.experiments.utils.visualization import (
     create_error_heatmap,
+    generate_benchmark_report,
     plot_inpainting_result,
     plot_multiple_results,
 )
@@ -115,7 +116,7 @@ class InpaintingBenchmark:
                 )
 
         df = pd.DataFrame(results)
-        self._generate_report(df, algorithms)
+        generate_benchmark_report(df, algorithms, self.metrics_dir, FIGSIZE, DPI)
 
         return df
 
@@ -264,74 +265,6 @@ class InpaintingBenchmark:
             figsize=FIGSIZE,
         )
 
-    def _generate_report(
-        self, results: pd.DataFrame, algorithms: list[InpaintingAlgorithm]
-    ) -> None:
-        """Generate comprehensive report with tables and figures."""
-        # Save full results
-        results.to_csv(self.metrics_dir / "full_results.csv", index=False)
-
-        # Generate summary statistics
-        summary = (
-            results.groupby(["Algorithm", "Category"])
-            .agg(
-                {
-                    "PSNR": ["mean", "std"],
-                    "SSIM": ["mean", "std"],
-                    "EMD": ["mean", "std"],
-                    "Time (s)": ["mean", "std"],
-                }
-            )
-            .round(4)
-        )
-
-        # Save LaTeX tables
-        with open(self.latex_dir / "summary_table.tex", "w") as f:
-            f.write(
-                summary.to_latex(
-                    caption="Summary of Inpainting Results", label="tab:inpainting_summary"
-                )
-            )
-
-        # Generate figures
-        self._plot_metrics_by_category(results)
-        self._plot_metrics_distribution(results, algorithms)
-
-    def _plot_metrics_by_category(self, results: pd.DataFrame) -> None:
-        """Plot metrics broken down by category."""
-        metrics = ["PSNR", "SSIM", "EMD", "Time (s)"]
-        fig, axes = plt.subplots(2, 2, figsize=FIGSIZE)
-
-        for ax, metric in zip(axes.flat, metrics):
-            sns.boxplot(data=results, x="Category", y=metric, hue="Algorithm", ax=ax)
-            ax.set_title(metric)
-            ax.tick_params(axis="x", rotation=45)
-
-        plt.tight_layout()
-        plt.savefig(self.figures_dir / "metrics_by_category.pdf", bbox_inches="tight", dpi=DPI)
-        plt.close()
-
-    def _plot_metrics_distribution(
-        self, results: pd.DataFrame, algorithms: list[InpaintingAlgorithm]
-    ) -> None:
-        """Plot distribution of metrics across all cases."""
-        metrics = ["PSNR", "SSIM", "EMD", "Time (s)"]
-        fig, axes = plt.subplots(2, 2, figsize=FIGSIZE)
-
-        for ax, metric in zip(axes.flat, metrics):
-            for algorithm in algorithms:
-                sns.kdeplot(
-                    data=results[results["Algorithm"] == algorithm.name][metric],
-                    label=algorithm.name,
-                    ax=ax,
-                )
-            ax.set_title(f"{metric} Distribution")
-            ax.legend()
-
-        plt.tight_layout()
-        plt.savefig(self.figures_dir / "metrics_distribution.pdf", bbox_inches="tight", dpi=DPI)
-        plt.close()
-
 
 if __name__ == "__main__":
     import numpy as np
@@ -377,7 +310,7 @@ if __name__ == "__main__":
         target_size=(CUSTOM_IMAGES_SIZE, CUSTOM_IMAGES_SIZE)
     )
 
-    all_samples = {**custom_samples, **real_samples, **synthetic_samples}
+    all_samples = real_samples  # {**custom_samples, **real_samples, **synthetic_samples}
 
     logger.info(f"Running benchmark on {len(all_samples)} test cases")
     results_df = benchmark.run(algorithms, samples=all_samples)
