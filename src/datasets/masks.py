@@ -14,8 +14,8 @@ class MaskConfig:
     """Configuration for mask generation."""
 
     coverage_range: tuple[float, float] = (0.05, 0.15)
-    thickness_range: tuple[int, int] | None = (1, 4)
-    num_components: tuple[int, int] | None = (8, 15)
+    thickness_range: tuple[int, int] | None = (1, 6)
+    num_components: tuple[int, int] | None = (4, 30)
 
 
 @dataclass
@@ -120,7 +120,7 @@ class MaskGenerator:
         n_strokes: int | None = None,
         stroke_width: int | None = None,
     ) -> npt.NDArray[np.uint8]:
-        """Create brush-stroke mask with configurable parameters."""
+        """Create brush-stroke mask with configurable parameters and varying stroke widths."""
         h, w = image.shape[:2]
         mask = np.zeros((h, w), dtype=np.uint8)
 
@@ -129,10 +129,13 @@ class MaskGenerator:
                 *self.config.num_components if self.config.num_components else (3, 10)
             )
 
-        if stroke_width is None and self.config.thickness_range:
-            stroke_width = np.random.randint(*self.config.thickness_range)
-        elif stroke_width is None:
-            stroke_width = 1
+        # If stroke_width is provided, use it as the mean width for random generation
+        if stroke_width is not None:
+            base_width = stroke_width
+        elif self.config.thickness_range:
+            base_width = np.mean(self.config.thickness_range)
+        else:
+            base_width = 1
 
         target_coverage = np.random.uniform(*self.config.coverage_range)
         total_area = h * w
@@ -142,13 +145,20 @@ class MaskGenerator:
             if current_coverage >= target_coverage:
                 break
 
+            # Generate random width for this stroke
+            if self.config.thickness_range:
+                current_stroke_width = np.random.randint(*self.config.thickness_range)
+            else:
+                # Vary width around the base width if no range is specified
+                current_stroke_width = max(1, int(np.random.normal(base_width, base_width * 0.3)))
+
             points = self._generate_bezier_points(w, h)
             temp_mask = mask.copy()
 
             for i in range(len(points) - 1):
                 pt1 = tuple(map(int, points[i]))
                 pt2 = tuple(map(int, points[i + 1]))
-                cv2.line(temp_mask, pt1, pt2, 255, stroke_width)
+                cv2.line(temp_mask, pt1, pt2, 255, current_stroke_width)
 
             new_coverage = np.sum(temp_mask > 0) / total_area
             if new_coverage <= target_coverage:
@@ -161,15 +171,16 @@ class MaskGenerator:
         self,
         image: npt.NDArray[np.uint8],
         text: str = "COMP558 IS THE BEST CLASS",
-        scale: float = 0.8,
-        thickness: int = 1,
+        font_scale: float = 1 / 250,  # Font scale relative to image size
+        thickness_scale: int = 1 / 50,  # Thickness relative to image size
     ) -> npt.NDArray[np.uint8]:
         """Create mask from text, automatically wrapping to fit image width."""
         h, w = image.shape[:2]
         mask = np.zeros((h, w), dtype=np.uint8)
 
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = scale * min(w, h) / 500  # Scale relative to image size
+        font_scale *= min(w, h)
+        thickness = max(1, int(thickness_scale * min(w, h)))
 
         # First measure each word
         words = text.split()
@@ -366,7 +377,7 @@ if __name__ == "__main__":
     # Test text mask with different parameters
     text_masks = [
         ("Default", mask_gen.generate(test_image, "text")),
-        ("Large", mask_gen.generate(test_image, "text", scale=2.0)),
+        ("Large", mask_gen.generate(test_image, "text")),
         ("Custom", mask_gen.generate(test_image, "text", text="TEST", thickness=1)),
     ]
     fig = plot_masks(test_image, text_masks, "Text Masks")
