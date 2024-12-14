@@ -320,31 +320,34 @@ class InpaintingDataset:
 
         samples = {}
         for image_file in image_files:
+            # Read image in BGR format
             image = cv2.imread(str(image_file), cv2.IMREAD_COLOR)
             if image is None:
                 logger.warning(f"Could not read image file: {image_file}")
                 continue
 
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # BGR to RGB
-            image = image.astype(np.float32) / 255.0  # Normalize to [0, 1]
-            image = resize_if_needed(image, target_size)  # Resize image
+            # Convert to RGB and keep in [0, 255] range
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            image = resize_if_needed(image, target_size)
 
             image_name = image_file.stem
             if image_name not in masks:
                 logger.warning(f"No matching mask found for custom {image_name}")
                 continue
 
+            # Process mask and ensure it's in same range as image
             found_mask = masks[image_name]
-
             mask = found_mask.astype(np.uint8) * 255
-            if mask.shape != image.shape[:2]:  # Note: comparing with image spatial dimensions only
+
+            # Resize mask if needed
+            if mask.shape != image.shape[:2]:
                 mask = cv2.resize(
                     mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST
                 )
             mask = mask.squeeze()
 
             # Create masked version (NaN in masked regions)
-            masked = image.copy()
+            masked = image.astype(np.float32)  # Convert to float32 for NaN support
             mask_bool = mask > 0
             for c in range(3):
                 channel_masked = masked[..., c]
@@ -354,7 +357,10 @@ class InpaintingDataset:
             assert len(mask.shape) == 2, f"Mask should be 2D, got shape {mask.shape}"
 
             samples[f"custom_{image_name}"] = InpaintSample(
-                original=image, masked=masked, mask=mask, category=ImageCategory.CUSTOM
+                original=image,  # Keep original in [0, 255] range
+                masked=masked,  # Contains NaN values
+                mask=mask,  # In [0, 255] range
+                category=ImageCategory.CUSTOM,
             )
 
             logger.debug(
