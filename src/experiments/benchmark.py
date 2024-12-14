@@ -356,9 +356,9 @@ if __name__ == "__main__":
     benchmark = InpaintingBenchmark()
 
     algorithms = [
-        EfrosLeungInpainting(window_size=7, error_threshold=0.3, sigma=1.5),
-        NavierStokesInpainting(max_iter=100, dt=0.05, nu=0.15, K=2.5),
-        PatchMatchInpainting(patch_size=7, num_iterations=5, search_ratio=0.5),
+        EfrosLeungInpainting(),
+        NavierStokesInpainting(),
+        PatchMatchInpainting(),
     ]
 
     synthetic_samples = benchmark.dataset.generate_synthetic_dataset(
