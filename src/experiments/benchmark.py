@@ -21,25 +21,8 @@ from src.experiments.utils.visualization import (
 )
 from src.settings import DATA_PATH
 
-
-@dataclass
-class BenchmarkConfig:
-    """Configuration for benchmark run."""
-
-    # Dataset parameters
-    synthetic_size: int = 128  # Size of synthetic test images
-    n_real_images: int = 20  # Number of real test images to use
-    real_size: int = 128  # Size to resize real images to
-    custom_size: tuple[int, int] = (128, 128)  # Size of custom test images
-
-    # Output parameters
-    save_individual: bool = True  # Save individual results
-    save_comparisons: bool = True  # Save side-by-side comparisons
-    save_heatmaps: bool = True  # Save error heatmaps
-
-    # Visualization parameters
-    figsize: tuple[int, int] = (15, 10)
-    dpi: int = 300
+FIGSIZE: tuple[int, int] = (15, 10)
+DPI: int = 300
 
 
 class InpaintingBenchmark:
@@ -48,10 +31,8 @@ class InpaintingBenchmark:
     def __init__(
         self,
         output_dir: Path | None = None,
-        config: BenchmarkConfig | None = None,
     ):
         self.output_dir = output_dir or (DATA_PATH / "benchmark_results")
-        self.config = config or BenchmarkConfig()
 
         # Setup directories
         self.dataset_dir = self.output_dir / "datasets"
@@ -115,22 +96,21 @@ class InpaintingBenchmark:
                         }
                     )
 
-                    if self.config.save_individual:
-                        self._save_individual_result(
-                            algorithm_name=algorithm.name,
-                            case_name=base_name,
-                            mask_name=mask_type,
-                            image=sample.original,
-                            mask=sample.mask,
-                            result=result,
-                            metrics=metrics,
-                        )
+                    self._save_individual_result(
+                        algorithm_name=algorithm.name,
+                        case_name=base_name,
+                        mask_name=mask_type,
+                        image=sample.original,
+                        mask=sample.mask,
+                        result=result,
+                        metrics=metrics,
+                    )
 
                 except Exception as e:
                     logger.error(f"Error processing {case_name} with {algorithm.name}: {str(e)}")
                     continue
 
-            if algorithm_results and self.config.save_comparisons:
+            if algorithm_results:
                 self._save_comparison(
                     base_name, mask_type, sample.original, sample.mask, algorithm_results
                 )
@@ -247,18 +227,17 @@ class InpaintingBenchmark:
             save_path=base_path / "result.png",
             title=f"{algorithm_name} on {case_name} ({mask_name})",
             metrics=metrics,
-            figsize=self.config.figsize,
+            figsize=FIGSIZE,
         )
 
         # Save error heatmap
-        if self.config.save_heatmaps:
-            create_error_heatmap(
-                original=image,
-                result=result,
-                mask=mask,
-                save_path=base_path / "error_heatmap.png",
-                figsize=self.config.figsize,
-            )
+        create_error_heatmap(
+            original=image,
+            result=result,
+            mask=mask,
+            save_path=base_path / "error_heatmap.png",
+            figsize=FIGSIZE,
+        )
 
     def _save_comparison(
         self,
@@ -283,7 +262,7 @@ class InpaintingBenchmark:
             results_dict,
             save_path=comparison_path,
             metrics_dict=metrics_dict,
-            figsize=self.config.figsize,
+            figsize=FIGSIZE,
         )
 
     def _generate_report(
@@ -322,7 +301,7 @@ class InpaintingBenchmark:
     def _plot_metrics_by_category(self, results: pd.DataFrame) -> None:
         """Plot metrics broken down by category."""
         metrics = ["PSNR", "SSIM", "EMD", "Time (s)"]
-        fig, axes = plt.subplots(2, 2, figsize=self.config.figsize)
+        fig, axes = plt.subplots(2, 2, figsize=FIGSIZE)
 
         for ax, metric in zip(axes.flat, metrics):
             sns.boxplot(data=results, x="Category", y=metric, hue="Algorithm", ax=ax)
@@ -330,9 +309,7 @@ class InpaintingBenchmark:
             ax.tick_params(axis="x", rotation=45)
 
         plt.tight_layout()
-        plt.savefig(
-            self.figures_dir / "metrics_by_category.pdf", bbox_inches="tight", dpi=self.config.dpi
-        )
+        plt.savefig(self.figures_dir / "metrics_by_category.pdf", bbox_inches="tight", dpi=DPI)
         plt.close()
 
     def _plot_metrics_distribution(
@@ -340,7 +317,7 @@ class InpaintingBenchmark:
     ) -> None:
         """Plot distribution of metrics across all cases."""
         metrics = ["PSNR", "SSIM", "EMD", "Time (s)"]
-        fig, axes = plt.subplots(2, 2, figsize=self.config.figsize)
+        fig, axes = plt.subplots(2, 2, figsize=FIGSIZE)
 
         for ax, metric in zip(axes.flat, metrics):
             for algorithm in algorithms:
@@ -353,9 +330,7 @@ class InpaintingBenchmark:
             ax.legend()
 
         plt.tight_layout()
-        plt.savefig(
-            self.figures_dir / "metrics_distribution.pdf", bbox_inches="tight", dpi=self.config.dpi
-        )
+        plt.savefig(self.figures_dir / "metrics_distribution.pdf", bbox_inches="tight", dpi=DPI)
         plt.close()
 
 
@@ -373,38 +348,37 @@ if __name__ == "__main__":
     from src.utils.logging import setup_logger
 
     setup_logger()
+    logger.info("Starting experiments")
 
-    image_size = 64
-    config = BenchmarkConfig(
-        synthetic_size=image_size,
-        n_real_images=2,
-        real_size=image_size,
-        save_individual=True,
-        save_comparisons=True,
-        save_heatmaps=True,
-        custom_size=(image_size, image_size),
-    )
-    benchmark = InpaintingBenchmark(config=config)
+    IMAGE_SIZE = 256
+    SYNTHETIC_SIZE = 32
+    N_REAL_IMAGES = 5
+    benchmark = InpaintingBenchmark()
 
     algorithms = [
-        # LamaInpainting(),
-        # LCMInpainting(),
-        EfrosLeungInpainting(window_size=5, error_threshold=0.4, sigma=1.0),
+        EfrosLeungInpainting(window_size=7, error_threshold=0.3, sigma=1.5),
         NavierStokesInpainting(max_iter=100, dt=0.05, nu=0.15, K=2.5),
-        PatchMatchInpainting(patch_size=5, num_iterations=3, search_ratio=0.6, alpha=0.15),
+        PatchMatchInpainting(patch_size=7, num_iterations=5, search_ratio=0.5),
     ]
 
     synthetic_samples = benchmark.dataset.generate_synthetic_dataset(
-        size=benchmark.config.synthetic_size, mask_types=["center", "random", "brush", "text"]
+        size=SYNTHETIC_SIZE,
+        mask_types=["brush", "text"],
+        selected_cases=["checkerboard", "lines"],
     )
+
     real_samples = benchmark.dataset.load_real_dataset(
-        n_images=benchmark.config.n_real_images,
-        size=benchmark.config.real_size,
-        mask_types=["center", "random", "brush", "text"],
+        n_images=N_REAL_IMAGES,
+        size=IMAGE_SIZE,
+        mask_types=["brush", "text"],
     )
-    custom_samples = benchmark.dataset.load_custom_dataset(target_size=benchmark.config.custom_size)
-    all_samples = {**synthetic_samples, **real_samples, **custom_samples}
+
+    custom_samples = benchmark.dataset.load_custom_dataset(target_size=IMAGE_SIZE)
+
+    all_samples = {**custom_samples, **real_samples, **synthetic_samples}
 
     logger.info(f"Running benchmark on {len(all_samples)} test cases")
     results_df = benchmark.run(algorithms, samples=all_samples)
+    logger.info("\nFinal results:")
+    logger.info(results_df)
     logger.info("Benchmark completed! Results saved to data/benchmark_results/")
