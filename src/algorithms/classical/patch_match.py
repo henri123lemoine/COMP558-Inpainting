@@ -136,13 +136,9 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         patch2_valid = np.clip(patch2, 0, 1)
 
         # Compute weighted SSD
+        # Patches are always 3D (H, W, C)
         diff = (patch1_valid - patch2_valid) ** 2
-
-        if len(patch1.shape) == 3:
-            # For color images, sum across channels and weight spatially
-            weighted_diff = np.sum(diff, axis=2) * self.weights * valid
-        else:
-            weighted_diff = diff * self.weights * valid
+        weighted_diff = np.sum(diff, axis=2) * self.weights * valid
 
         # Early exit if partial sum exceeds threshold
         if early_exit is not None:
