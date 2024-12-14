@@ -64,7 +64,7 @@ class InpaintingAlgorithm(ABC):
             logger.warning("Full mask, nothing to inpaint")
             return image
 
-    def preprocess_inputs(self, image: Image, mask: Mask) -> InpaintingInputs:
+    def preprocess_inputs(self, image: Image, mask: Mask) -> tuple[np.ndarray, ...]:
         """Preprocess inputs to standardized format."""
         # Store original image before any processing
         original = image.copy()
@@ -96,25 +96,21 @@ class InpaintingAlgorithm(ABC):
             f"Image range after normalization: [{np.nanmin(image_float_masked):.3f}, {np.nanmax(image_float_masked):.3f}]"
         )
 
-        return InpaintingInputs(
-            original=original,
-            image=image_float_masked,
-            mask=mask_binary,
-            original_dtype=original_dtype,
-            original_range=original_range,
-        )
+        return (original, image_float_masked, mask_binary, original_dtype, original_range)
 
-    def postprocess_output(self, output: Image, inputs: InpaintingInputs) -> Image:
+    def postprocess_output(
+        self, output: Image, original_dtype: np.dtype, original_range: tuple[float, float]
+    ) -> Image:
         """Convert output back to original format."""
         # Clip to valid range
         output_clipped = np.clip(output, 0, 1)
 
         # Scale back to original range if needed
-        if inputs.original_range[1] > 1.0:
+        if original_range[1] > 1.0:
             output_clipped *= 255.0
 
         # Convert back to original dtype
-        return output_clipped.astype(inputs.original_dtype)
+        return output_clipped.astype(original_dtype)
 
     def inpaint(self, image: Image, mask: Mask, **kwargs) -> tuple[Image, Image, Mask, Image]:
         """Inpaint the masked region.
@@ -127,11 +123,13 @@ class InpaintingAlgorithm(ABC):
 
         ***IMPORTANT***: _inpaint() method must *never* see behind the mask!
         """
-        inputs = self.preprocess_inputs(image, mask)
-        output = self._inpaint(inputs.image, inputs.mask, **kwargs)
-        processed_output = self.postprocess_output(output, inputs)
+        original, image_masked, mask_binary, original_dtype, original_range = (
+            self.preprocess_inputs(image, mask)
+        )
+        output = self._inpaint(image_masked, mask_binary, **kwargs)
+        processed_output = self.postprocess_output(output, original_dtype, original_range)
 
-        return inputs.original, inputs.image, inputs.mask, processed_output
+        return original, image_masked, mask_binary, processed_output
 
     @abstractmethod
     def _inpaint(self, image: Image, mask: Mask, **kwargs) -> Image:
