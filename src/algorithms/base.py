@@ -12,26 +12,6 @@ Mask: TypeAlias = np.ndarray  # Shape: (H, W), dtype: bool or uint8
 PathLike: TypeAlias = str | Path
 
 
-class InpaintingResult(NamedTuple):
-    """Results from inpainting operation."""
-
-    original: Image
-    masked: Image
-    mask: Mask
-    output: Image
-
-
-@dataclass
-class InpaintingInputs:
-    """Validated and preprocessed inputs for inpainting."""
-
-    original: Image
-    image: Image
-    mask: Mask
-    original_dtype: np.dtype
-    original_range: tuple[float, float]
-
-
 class InpaintingAlgorithm(ABC):
     """Base class for all inpainting algorithms."""
 
@@ -281,3 +261,19 @@ class InpaintingAlgorithm(ABC):
             plt.savefig("comparison.png")
 
         plt.show()
+
+
+if __name__ == "__main__":
+    # Security test
+    image = np.random.rand(100, 100)
+    mask = np.zeros((100, 100), dtype=bool)
+    mask[25:75, 25:75] = True
+
+    class TestInpainting(InpaintingAlgorithm):
+        def _inpaint(self, image: Image, mask: Mask, **kwargs) -> Image:
+            return image
+
+    algorithm = TestInpainting("TestAlgorithm")
+    _, image_masked, _, _, _ = algorithm.preprocess_inputs(image, mask)
+    assert np.all(np.isnan(image_masked[mask]))
+    logger.info("Security test passed!")
