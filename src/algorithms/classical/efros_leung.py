@@ -17,9 +17,9 @@ class EfrosLeungParams:
     sigma: Standard deviation for Gaussian weighting
     """
 
-    window_size: int = 11
-    error_threshold: float = 0.1
-    sigma: float = 1.0
+    window_size: int
+    error_threshold: float
+    sigma: float
 
     def __post_init__(self):
         if self.window_size % 2 == 0:
@@ -37,9 +37,9 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
 
     def __init__(
         self,
-        window_size: int = 11,
-        error_threshold: float = 0.1,
-        sigma: float = 1.0,
+        window_size: int = 7,
+        error_threshold: float = 0.3,
+        sigma: float = 1.5,
     ):
         super().__init__("EfrosLeung")
 
@@ -352,5 +352,5 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
 
 
 if __name__ == "__main__":
-    inpainter = EfrosLeungInpainting(window_size=7, error_threshold=0.3, sigma=1.5)
+    inpainter = EfrosLeungInpainting()
     inpainter.run_example(scale_factor=0.25)

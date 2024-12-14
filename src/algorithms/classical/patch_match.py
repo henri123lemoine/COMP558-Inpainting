@@ -422,5 +422,5 @@ class PatchMatchInpainting(InpaintingAlgorithm):
 
 
 if __name__ == "__main__":
-    inpainter = PatchMatchInpainting(patch_size=5, num_iterations=15, search_ratio=0.5, alpha=0.1)
+    inpainter = PatchMatchInpainting()
     inpainter.run_example(scale_factor=0.25)
