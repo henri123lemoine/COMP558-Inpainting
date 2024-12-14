@@ -1,14 +1,12 @@
-import functools
 import time
-from multiprocessing import Pool
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import seaborn as sns
 from loguru import logger
+from tqdm import tqdm
 
 from src.algorithms.base import Image, InpaintingAlgorithm, Mask
 from src.datasets.images import InpaintingDataset, InpaintSample
@@ -21,7 +19,6 @@ from src.experiments.utils.visualization import (
     plot_multiple_results,
 )
 from src.settings import DATA_PATH
-from src.utils.logging import worker_init
 
 FIGSIZE: tuple[int, int] = (15, 10)
 DPI: int = 300
@@ -59,35 +56,43 @@ class InpaintingBenchmark:
     def run(
         self, algorithms: list[InpaintingAlgorithm], samples: dict[str, InpaintSample]
     ) -> pd.DataFrame:
-        """Run complete benchmark suite in parallel."""
-        process_func = functools.partial(self._process_test_case, algorithms)
-
-        with Pool(initializer=worker_init) as pool:
-            all_results = list(pool.imap(process_func, samples.items()))
-
-        results = [item for sublist in all_results for item in sublist]
+        """Run complete benchmark suite."""
+        results = []
+        with ProcessPoolExecutor() as executor:
+            futures = [
+                executor.submit(self._process_test_case, case_name, sample, algorithms, [])
+                for case_name, sample in samples.items()
+            ]
+            for future in tqdm(futures, desc="Processing cases"):
+                try:
+                    results.extend(future.result())
+                except Exception as e:
+                    logger.error(f"Error processing a test case: {e}")
 
         df = pd.DataFrame(results)
         generate_benchmark_report(df, algorithms, self.metrics_dir, FIGSIZE, DPI)
-
         return df
 
     def _process_test_case(
-        self, algorithms: list[InpaintingAlgorithm], case_data: tuple[str, InpaintSample]
-    ) -> list[dict]:
-        """Process a single test case for all algorithms."""
-        case_name, sample = case_data
-        results = []
-
+        self,
+        case_name: str,
+        sample: InpaintSample,
+        algorithms: list[InpaintingAlgorithm],
+        results: list[dict[str, Any]],
+    ) -> None:
+        """Process a single test case with all algorithms."""
         base_name = case_name
         mask_type = (
             "custom" if sample.category == ImageCategory.CUSTOM else case_name.rsplit("_", 1)[1]
         )
 
+        algorithm_results = {}
         for algorithm in algorithms:
+            logger.debug(f"Running {algorithm.name} on {base_name}")
+
             try:
                 start_time = time.time()
-                original, masked, mask, result = algorithm.inpaint(sample.original, sample.mask)
+                original, _, mask, result = algorithm.inpaint(sample.original, sample.mask)
                 exec_time = time.time() - start_time
 
                 metrics = InpaintingMetrics.compute(
@@ -96,6 +101,8 @@ class InpaintingBenchmark:
                     mask=mask,
                     execution_time=exec_time,
                 )
+
+                algorithm_results[algorithm.name] = {"result": result, "metrics": metrics}
 
                 results.append(
                     {
@@ -121,6 +128,11 @@ class InpaintingBenchmark:
                 logger.error(f"Error processing {case_name} with {algorithm.name}: {str(e)}")
                 continue
 
+        if algorithm_results:
+            self._save_comparison(
+                base_name, mask_type, sample.original, sample.mask, algorithm_results
+            )
+
         return results
 
     def _save_individual_result(
@@ -137,7 +149,6 @@ class InpaintingBenchmark:
         base_path = self.results_dir / algorithm_name / case_name / mask_name
         base_path.mkdir(parents=True, exist_ok=True)
 
-        # Save result visualization
         plot_inpainting_result(
             original=image,
             mask=mask,
@@ -148,7 +159,6 @@ class InpaintingBenchmark:
             figsize=FIGSIZE,
         )
 
-        # Save error heatmap
         create_error_heatmap(
             original=image,
             result=result,
@@ -185,31 +195,24 @@ class InpaintingBenchmark:
 
 
 if __name__ == "__main__":
-    import numpy as np
     import pandas as pd
 
-    from src.algorithms import (
-        EfrosLeungInpainting,
-        LamaInpainting,
-        LCMInpainting,
-        NavierStokesInpainting,
-        PatchMatchInpainting,
-    )
+    from src.algorithms import EfrosLeungInpainting, NavierStokesInpainting, PatchMatchInpainting
     from src.utils.logging import setup_logger
 
-    setup_logger()
+    setup_logger("INFO")
     logger.info("Starting experiments")
 
-    REAL_IMAGE_SIZE = 128
+    REAL_IMAGE_SIZE = 64
     SYNTHETIC_SIZE = 32
-    CUSTOM_IMAGES_SIZE = 256
+    CUSTOM_IMAGES_SIZE = 64  # 256
     N_REAL_IMAGES = 6
     benchmark = InpaintingBenchmark()
 
     algorithms = [
-        EfrosLeungInpainting(),
-        NavierStokesInpainting(),
-        PatchMatchInpainting(),
+        EfrosLeungInpainting(window_size=9),
+        NavierStokesInpainting(max_iterations=300),
+        PatchMatchInpainting(patch_size=9, num_iterations=3),
     ]
 
     synthetic_samples = benchmark.dataset.generate_synthetic_dataset(
