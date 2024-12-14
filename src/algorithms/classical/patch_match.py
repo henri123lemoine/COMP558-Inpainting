@@ -6,7 +6,7 @@ from loguru import logger
 from scipy.ndimage import gaussian_filter
 from tqdm import tqdm
 
-from src.algorithms.base import Image, InpaintingAlgorithm, Mask
+from src.algorithms.base import Image, InpaintingAlgorithm, InpaintingParams, Mask
 
 Patch: TypeAlias = np.ndarray  # Shape: (patch_size, patch_size)
 PatchMask: TypeAlias = np.ndarray  # Shape: (patch_size, patch_size), dtype: bool
@@ -14,16 +14,17 @@ NNField: TypeAlias = np.ndarray  # Shape: (H, W, 2), dtype: int32
 
 
 @dataclass(frozen=True)
-class PatchMatchParams:
+class PatchMatchParams(InpaintingParams):
     """Parameters for PatchMatch algorithm."""
 
-    patch_size: int
-    num_iterations: int
-    search_ratio: float
-    alpha: float
+    patch_size: int = 13
+    num_iterations: int = 5
+    search_ratio: float = 0.5
+    alpha: float = 0.15
 
     def __post_init__(self) -> None:
         """Validate parameters."""
+        super().__post_init__()
         if self.patch_size % 2 == 0:
             raise ValueError("Patch size must be odd")
         if self.patch_size < 3:
@@ -44,35 +45,17 @@ class PatchMatchInpainting(InpaintingAlgorithm):
     `https://gfx.cs.princeton.edu/pubs/Barnes_2009_PAR/index.php`
     """
 
+    params_class = PatchMatchParams
+
     # Constants
     MIN_VALID_RATIO: Final[float] = 0.1  # Minimum ratio of valid pixels in patch
     MAX_RANDOM_SAMPLES: Final[int] = 25  # Maximum random samples per position
 
-    def __init__(
-        self,
-        patch_size: int = 13,
-        num_iterations: int = 5,
-        search_ratio: float = 0.5,
-        alpha: float = 0.15,
-    ) -> None:
+    def __init__(self, **kwargs) -> None:
         """Initialize PatchMatch algorithm with given parameters."""
-        super().__init__("PatchMatch")
-
-        self.params = PatchMatchParams(
-            patch_size=patch_size,
-            num_iterations=num_iterations,
-            search_ratio=search_ratio,
-            alpha=alpha,
-        )
-
-        self.half_patch = patch_size // 2
-        # Pre-compute Gaussian weights for patch comparison
+        super().__init__("PatchMatch", **kwargs)
+        self.half_patch = self.params.patch_size // 2
         self.weights = self._create_gaussian_weights()
-
-        logger.debug(
-            f"Initialized PatchMatch with: patch_size={patch_size}, "
-            f"num_iterations={num_iterations}, search_ratio={search_ratio}"
-        )
 
     def _create_gaussian_weights(self) -> np.ndarray:
         """Create Gaussian weighting kernel for patch comparison."""
@@ -437,4 +420,4 @@ class PatchMatchInpainting(InpaintingAlgorithm):
 
 if __name__ == "__main__":
     inpainter = PatchMatchInpainting()
-    inpainter.run_example(scale_factor=1)
+    inpainter.run()

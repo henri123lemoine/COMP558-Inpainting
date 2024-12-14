@@ -5,15 +5,15 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import spsolve
 from tqdm import tqdm
 
-from src.algorithms.base import Image, InpaintingAlgorithm, Mask
+from src.algorithms.base import Image, InpaintingAlgorithm, InpaintingParams, Mask
 
 
 @dataclass(frozen=True)
-class NavierStokesParams:
-    max_iter: int
-    dt: float
-    nu: float
-    K: float
+class NavierStokesParams(InpaintingParams):
+    max_iterations: int = 1000
+    dt: float = 0.02
+    nu: float = 0.15
+    K: float = 2.0
 
 
 class NavierStokesInpainting(InpaintingAlgorithm):
@@ -27,14 +27,10 @@ class NavierStokesInpainting(InpaintingAlgorithm):
     `https://www.math.ucla.edu/~bertozzi/papers/cvpr01.pdf`
     """
 
-    def __init__(self, max_iter: int = 1000, dt: float = 0.02, nu: float = 0.15, K: float = 2.0):
-        super().__init__(name="Navier-Stokes")
-        self.params = NavierStokesParams(
-            max_iter=max_iter,
-            dt=dt,
-            nu=nu,
-            K=K,
-        )
+    params_class = NavierStokesParams
+
+    def __init__(self, **kwargs):
+        super().__init__(name="Navier-Stokes", **kwargs)
 
     def _inpaint(self, image: Image, mask: Mask) -> Image:
         """Perform inpainting using the Navier-Stokes algorithm."""
@@ -161,4 +157,4 @@ class NavierStokesInpainting(InpaintingAlgorithm):
 
 if __name__ == "__main__":
     inpainter = NavierStokesInpainting()
-    inpainter.run_example(scale_factor=1)
+    inpainter.run()

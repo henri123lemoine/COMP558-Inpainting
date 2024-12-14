@@ -4,11 +4,11 @@ import numpy as np
 from loguru import logger
 from tqdm import tqdm
 
-from src.algorithms.base import Image, InpaintingAlgorithm, Mask
+from src.algorithms.base import Image, InpaintingAlgorithm, InpaintingParams, Mask
 
 
 @dataclass(frozen=True)
-class EfrosLeungParams:
+class EfrosLeungParams(InpaintingParams):
     """
     Parameters for the Efros-Leung texture synthesis algorithm.
 
@@ -17,11 +17,12 @@ class EfrosLeungParams:
     sigma: Standard deviation for Gaussian weighting
     """
 
-    window_size: int
-    error_threshold: float
-    sigma: float
+    window_size: int = 13
+    error_threshold: float = 0.25
+    sigma: float = 1.5
 
     def __post_init__(self):
+        super().__post_init__()
         if self.window_size % 2 == 0:
             raise ValueError("Window size must be odd")
 
@@ -35,20 +36,10 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
     `https://www2.eecs.berkeley.edu/Research/Projects/CS/vision/papers/efros-iccv99.pdf`
     """
 
-    def __init__(
-        self,
-        window_size: int = 13,
-        error_threshold: float = 0.25,
-        sigma: float = 1.5,
-    ):
-        super().__init__("EfrosLeung")
+    params_class = EfrosLeungParams
 
-        self.params = EfrosLeungParams(
-            window_size=window_size,
-            error_threshold=error_threshold,
-            sigma=sigma,
-        )
-
+    def __init__(self, **kwargs):
+        super().__init__(name="EfrosLeung", **kwargs)
         self.weights = self._create_gaussian_kernel()
 
     def _create_gaussian_kernel(self) -> np.ndarray:
@@ -383,4 +374,4 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
 
 if __name__ == "__main__":
     inpainter = EfrosLeungInpainting()
-    inpainter.run_example(scale_factor=1)
+    inpainter.run()
