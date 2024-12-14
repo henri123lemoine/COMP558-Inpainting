@@ -349,7 +349,7 @@ if __name__ == "__main__":
     setup_logger()
     logger.info("Starting experiments")
 
-    REAL_IMAGE_SIZE = 32
+    REAL_IMAGE_SIZE = 128
     SYNTHETIC_SIZE = 32
     CUSTOM_IMAGES_SIZE = 256
     N_REAL_IMAGES = 6
@@ -363,7 +363,7 @@ if __name__ == "__main__":
 
     synthetic_samples = benchmark.dataset.generate_synthetic_dataset(
         size=SYNTHETIC_SIZE,
-        mask_types=["brush", "text"],
+        mask_types=["brush", "center", "random"],
         selected_cases=["checkerboard", "lines"],
     )
 
