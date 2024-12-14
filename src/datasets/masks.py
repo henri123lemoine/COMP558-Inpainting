@@ -126,7 +126,7 @@ class MaskGenerator:
 
         if n_strokes is None:
             n_strokes = np.random.randint(
-                *self.config.num_components if self.config.num_components else (3, 5)
+                *self.config.num_components if self.config.num_components else (3, 10)
             )
 
         if stroke_width is None and self.config.thickness_range:
