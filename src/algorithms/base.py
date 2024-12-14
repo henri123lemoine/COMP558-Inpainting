@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import ClassVar, TypeAlias
 
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 from loguru import logger
 
@@ -94,6 +95,10 @@ class InpaintingAlgorithm(ABC):
         original_dtype = image.dtype
         original_range = (float(image.min()), float(image.max()))
 
+        # Convert greyscale to 3D array for unified processing
+        if len(image.shape) == 2:
+            image = image[..., np.newaxis]
+
         # Normalize image to [0, 1]
         image_float = image.astype(np.float32)
         if original_range[1] > 1.0:
@@ -123,6 +128,10 @@ class InpaintingAlgorithm(ABC):
         self, output: Image, original_dtype: np.dtype, original_range: tuple[float, float]
     ) -> Image:
         """Convert output back to original format."""
+        # Squeeze output if it was originally 2D
+        if output.shape[-1] == 1:
+            output = np.squeeze(output, axis=-1)
+
         # Clip to valid range
         output_clipped = np.clip(output, 0, 1)
 
@@ -161,7 +170,7 @@ class InpaintingAlgorithm(ABC):
         self,
         image_path: PathLike,
         mask_path: PathLike | None = None,
-        grayscale: bool = False,
+        greyscale: bool = False,
     ) -> tuple[Image, Mask | None]:
         """Load and preprocess image and optional mask.
 
@@ -175,13 +184,13 @@ class InpaintingAlgorithm(ABC):
             raise FileNotFoundError(f"Mask not found: {mask_path}")
 
         # Load image
-        flag = cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR
+        flag = cv2.IMREAD_GRAYSCALE if greyscale else cv2.IMREAD_COLOR
         image = cv2.imread(str(image_path), flag)
         if image is None:
             raise ValueError(f"Failed to load image: {image_path}")
 
         # Convert color space and normalize
-        if not grayscale and len(image.shape) == 3:
+        if not greyscale and len(image.shape) == 3:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         image = image.astype(np.float32) / 255.0
 
@@ -249,28 +258,7 @@ class InpaintingAlgorithm(ABC):
         greyscale=False,
     ):
         """Run inpainting experiment with various options."""
-        import cv2
-        import matplotlib.pyplot as plt
-
-        image = cv2.imread(str(image_path))
-        if greyscale:
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            # Convert back to 3 channels to maintain compatibility with rest of pipeline
-            image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-        else:
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-
-        if image is None:
-            raise FileNotFoundError(f"Error: Could not read the image file at {image_path}")
-        if mask is None:
-            raise FileNotFoundError(f"Error: Could not read the mask file at {mask_path}")
-
-        if mask.shape != image.shape:
-            logger.debug(f"Resizing mask from {mask.shape} to {image.shape}...")
-            mask = cv2.resize(
-                mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST
-            )
+        image, mask = self.load_image(image_path, mask_path, greyscale)
 
         if scale_factor != 1.0:
             new_size = (int(image.shape[1] * scale_factor), int(image.shape[0] * scale_factor))
@@ -284,12 +272,12 @@ class InpaintingAlgorithm(ABC):
         plt.figure(figsize=(15, 5))
 
         plt.subplot(1, 4, 1)
-        plt.imshow(original)
+        plt.imshow(original, cmap="gray" if len(original.shape) == 2 else None)
         plt.title("Original Image")
         plt.axis("off")
 
         plt.subplot(1, 4, 2)
-        plt.imshow(masked)
+        plt.imshow(masked, cmap="gray" if len(masked.shape) == 2 else None)
         plt.title("Masked Image")
         plt.axis("off")
 
@@ -299,7 +287,7 @@ class InpaintingAlgorithm(ABC):
         plt.axis("off")
 
         plt.subplot(1, 4, 4)
-        plt.imshow(inpainted)
+        plt.imshow(inpainted, cmap="gray" if len(inpainted.shape) == 2 else None)
         plt.title("Inpainted Result")
         plt.axis("off")
 
