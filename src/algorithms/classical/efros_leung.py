@@ -76,55 +76,64 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         window_size = self.params.window_size
 
         # Create padded versions of image and mask
-        pad_top = max(0, half_window - y)
-        pad_bottom = max(0, y + half_window + 1 - image.shape[0])
-        pad_left = max(0, half_window - x)
-        pad_right = max(0, x + half_window + 1 - image.shape[1])
+        pad_width = [
+            (pad_top, pad_bottom)
+            for pad_top, pad_bottom in [
+                (max(0, half_window - y), max(0, y + half_window + 1 - image.shape[0])),
+                (max(0, half_window - x), max(0, x + half_window + 1 - image.shape[1])),
+            ]
+        ]
 
-        if any([pad_top, pad_bottom, pad_left, pad_right]):
-            padded_image = np.pad(
-                image, ((pad_top, pad_bottom), (pad_left, pad_right)), mode="reflect"
-            )
+        # Add channel dimension padding if needed
+        if len(image.shape) == 3:
+            pad_width.append((0, 0))
+
+        if any([sum(pads) > 0 for pads in pad_width]):
+            padded_image = np.pad(image, pad_width, mode="reflect")
             padded_mask = np.pad(
                 mask,
-                ((pad_top, pad_bottom), (pad_left, pad_right)),
+                pad_width[:2],  # Only pad spatial dimensions for mask
                 mode="constant",
                 constant_values=True,
             )
 
             # Adjust position for padded arrays
-            y_pad = y + pad_top
-            x_pad = x + pad_left
+            y_pad = y + pad_width[0][0]
+            x_pad = x + pad_width[1][0]
 
             # Extract exactly window_size x window_size neighborhood
-            neighborhood = padded_image[
-                y_pad - half_window : y_pad - half_window + window_size,
-                x_pad - half_window : x_pad - half_window + window_size,
-            ]
+            if len(image.shape) == 3:
+                neighborhood = padded_image[
+                    y_pad - half_window : y_pad - half_window + window_size,
+                    x_pad - half_window : x_pad - half_window + window_size,
+                    :,
+                ]
+            else:
+                neighborhood = padded_image[
+                    y_pad - half_window : y_pad - half_window + window_size,
+                    x_pad - half_window : x_pad - half_window + window_size,
+                ]
             validity_mask = ~padded_mask[
                 y_pad - half_window : y_pad - half_window + window_size,
                 x_pad - half_window : x_pad - half_window + window_size,
             ]
         else:
             # Extract exactly window_size x window_size neighborhood
-            neighborhood = image[
-                y - half_window : y - half_window + window_size,
-                x - half_window : x - half_window + window_size,
-            ]
+            if len(image.shape) == 3:
+                neighborhood = image[
+                    y - half_window : y - half_window + window_size,
+                    x - half_window : x - half_window + window_size,
+                    :,
+                ]
+            else:
+                neighborhood = image[
+                    y - half_window : y - half_window + window_size,
+                    x - half_window : x - half_window + window_size,
+                ]
             validity_mask = ~mask[
                 y - half_window : y - half_window + window_size,
                 x - half_window : x - half_window + window_size,
             ]
-
-        # Double check we got the right size
-        assert neighborhood.shape == (
-            window_size,
-            window_size,
-        ), f"Got shape {neighborhood.shape}, expected ({window_size}, {window_size})"
-        assert validity_mask.shape == (
-            window_size,
-            window_size,
-        ), f"Got shape {validity_mask.shape}, expected ({window_size}, {window_size})"
 
         return neighborhood, validity_mask
 
@@ -141,8 +150,12 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         window_size = self.params.window_size
         height, width = masked_image.shape[:2]
 
-        # Get valid source regions
-        filled_mask = ~mask & ~np.isnan(masked_image)
+        # Get valid source regions - use any channel for 3D images since mask applies to all
+        if len(masked_image.shape) == 3:
+            filled_mask = ~mask & ~np.isnan(masked_image[..., 0])
+        else:
+            filled_mask = ~mask & ~np.isnan(masked_image)
+
         search_positions = list(zip(*np.where(filled_mask)))
 
         if not search_positions:
@@ -155,17 +168,14 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
                     if (
                         0 <= ny < height
                         and 0 <= nx < width
-                        and not np.isnan(masked_image[ny, nx])
+                        and not np.any(np.isnan(masked_image[ny, nx]))
                         and not mask[ny, nx]
                     ):
                         neighbors.append(masked_image[ny, nx])
 
             if neighbors:
-                avg_value = np.mean(neighbors)
-                return (
-                    0.0,
-                    exclude_pos,
-                )  # Return position doesn't matter, value will be set separately
+                avg_value = np.mean(neighbors, axis=0)
+                return 0.0, exclude_pos
             raise ValueError("No valid neighbors found")
 
         best_error = float("inf")
@@ -183,13 +193,22 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
             ):
                 continue
 
-            neighborhood = masked_image[
-                y - half_window : y + half_window + window_size,
-                x - half_window : x + half_window + window_size,
-            ]
+            if len(masked_image.shape) == 3:
+                neighborhood = masked_image[
+                    y - half_window : y + half_window + 1, x - half_window : x + half_window + 1, :
+                ]
+            else:
+                neighborhood = masked_image[
+                    y - half_window : y + half_window + 1,
+                    x - half_window : x + half_window + 1,
+                ]
 
             # Only compare non-nan pixels that are valid in both patches
-            valid_comparison = valid_mask & ~np.isnan(neighborhood)
+            if len(masked_image.shape) == 3:
+                valid_comparison = valid_mask[..., None] & ~np.isnan(neighborhood)
+            else:
+                valid_comparison = valid_mask & ~np.isnan(neighborhood)
+
             n_valid = np.sum(valid_comparison)
 
             if n_valid < 4:  # Require at least 4 valid pixels for comparison
@@ -197,8 +216,12 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
 
             # Compute weighted error
             diff = (target - neighborhood) ** 2
-            error = np.sum(self.weights * valid_comparison * diff)
-            error = error / (np.sum(self.weights * valid_comparison) + 1e-10)
+            if len(masked_image.shape) == 3:
+                error = np.sum(self.weights[..., None] * valid_comparison * diff)
+                error = error / (np.sum(self.weights[..., None] * valid_comparison) + 1e-10)
+            else:
+                error = np.sum(self.weights * valid_comparison * diff)
+                error = error / (np.sum(self.weights * valid_comparison) + 1e-10)
 
             if error < best_error:
                 best_error = error
@@ -207,18 +230,16 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
             if error < self.params.error_threshold:
                 candidates.append((error, (y, x)))
 
-        # If we found good candidates, randomly select from best ones
         if candidates:
             candidates.sort(key=lambda x: x[0])
             n_best = min(3, len(candidates))
             idx = np.random.randint(n_best)
             return candidates[idx]
 
-        # If we found any match (even if not great), use it
         if best_pos is not None:
             return best_error, best_pos
 
-        # Last resort: neighborhood average (same as initial fallback)
+        # Last resort: neighborhood average
         y, x = exclude_pos
         neighbors = []
         for dy in [-1, 0, 1]:
@@ -227,13 +248,12 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
                 if (
                     0 <= ny < height
                     and 0 <= nx < width
-                    and not np.isnan(masked_image[ny, nx])
+                    and not np.any(np.isnan(masked_image[ny, nx]))
                     and not mask[ny, nx]
                 ):
                     neighbors.append(masked_image[ny, nx])
 
         if neighbors:
-            avg_value = np.mean(neighbors)
             return 0.0, exclude_pos
 
         raise ValueError("No valid matches or neighbors found")
@@ -253,7 +273,13 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         with tqdm(total=total_pixels, desc="Efros-Leung") as pbar:
             while filled_pixels < total_pixels:
                 # Find pixels that still need to be filled (contain NaN)
-                unfilled_y, unfilled_x = np.where(np.isnan(result))
+                # For 3D images, check any channel since NaN applies to all channels
+                if len(result.shape) == 3:
+                    unfilled_positions = np.where(np.isnan(result[..., 0]))
+                else:
+                    unfilled_positions = np.where(np.isnan(result))
+
+                unfilled_y, unfilled_x = unfilled_positions[0], unfilled_positions[1]
 
                 if len(unfilled_y) == 0:
                     break
@@ -275,7 +301,10 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
                         continue
 
                     # Count valid (non-NaN) neighbors
-                    window = result[y - 1 : y + 2, x - 1 : x + 2]
+                    if len(result.shape) == 3:
+                        window = result[y - 1 : y + 2, x - 1 : x + 2, 0]  # Check first channel
+                    else:
+                        window = result[y - 1 : y + 2, x - 1 : x + 2]
                     valid_neighbors = np.sum(~np.isnan(window))
 
                     if valid_neighbors > max_valid_neighbors:
@@ -309,7 +338,7 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
                     result[y, x] = result[match_pos]
 
                     # Verify we didn't set a NaN value
-                    if np.isnan(result[y, x]):
+                    if np.any(np.isnan(result[y, x])):
                         raise ValueError("Matched to NaN value")
 
                 except (ValueError, IndexError) as e:
@@ -321,19 +350,20 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
                             if (
                                 0 <= ny < result.shape[0]
                                 and 0 <= nx < result.shape[1]
-                                and not np.isnan(result[ny, nx])
+                                and not np.any(np.isnan(result[ny, nx]))
                             ):
                                 neighbors.append(result[ny, nx])
 
                     if neighbors:
-                        result[y, x] = np.mean(neighbors)
+                        result[y, x] = np.mean(neighbors, axis=0)
                     else:
                         # If no valid neighbors, use the global mean of non-masked pixels
-                        valid_pixels = result[~np.isnan(result)]
-                        if len(valid_pixels) > 0:
-                            result[y, x] = np.mean(valid_pixels)
+                        if len(result.shape) == 3:
+                            valid_mask = ~np.isnan(result[..., 0])
+                            result[y, x] = np.mean(result[valid_mask], axis=0)
                         else:
-                            result[y, x] = 0.5  # Last resort default value
+                            valid_mask = ~np.isnan(result)
+                            result[y, x] = np.mean(result[valid_mask])
 
                 remaining_mask[y, x] = 0
                 filled_pixels += 1
