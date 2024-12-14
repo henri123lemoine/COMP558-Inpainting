@@ -353,4 +353,4 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
 
 if __name__ == "__main__":
     inpainter = EfrosLeungInpainting()
-    inpainter.run_example(scale_factor=0.25)
+    inpainter.run_example(scale_factor=1)
