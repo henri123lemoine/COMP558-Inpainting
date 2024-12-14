@@ -1,5 +1,4 @@
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -116,7 +115,7 @@ class InpaintingBenchmark:
                 )
 
         df = pd.DataFrame(results)
-        # self._generate_report(df, algorithms)
+        self._generate_report(df, algorithms)
 
         return df
 
@@ -350,9 +349,10 @@ if __name__ == "__main__":
     setup_logger()
     logger.info("Starting experiments")
 
-    IMAGE_SIZE = 256
+    REAL_IMAGE_SIZE = 32
     SYNTHETIC_SIZE = 32
-    N_REAL_IMAGES = 5
+    CUSTOM_IMAGES_SIZE = 256
+    N_REAL_IMAGES = 6
     benchmark = InpaintingBenchmark()
 
     algorithms = [
@@ -369,11 +369,13 @@ if __name__ == "__main__":
 
     real_samples = benchmark.dataset.load_real_dataset(
         n_images=N_REAL_IMAGES,
-        size=IMAGE_SIZE,
+        size=REAL_IMAGE_SIZE,
         mask_types=["brush", "text"],
     )
 
-    custom_samples = benchmark.dataset.load_custom_dataset(target_size=(IMAGE_SIZE, IMAGE_SIZE))
+    custom_samples = benchmark.dataset.load_custom_dataset(
+        target_size=(CUSTOM_IMAGES_SIZE, CUSTOM_IMAGES_SIZE)
+    )
 
     all_samples = {**custom_samples, **real_samples, **synthetic_samples}
 
