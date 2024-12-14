@@ -14,8 +14,8 @@ class MaskConfig:
     """Configuration for mask generation."""
 
     coverage_range: tuple[float, float] = (0.05, 0.15)
-    thickness_range: tuple[int, int] | None = (1, 2)
-    num_components: tuple[int, int] | None = (3, 5)
+    thickness_range: tuple[int, int] | None = (1, 4)
+    num_components: tuple[int, int] | None = (8, 15)
 
 
 @dataclass
