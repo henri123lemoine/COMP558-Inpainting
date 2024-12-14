@@ -34,14 +34,8 @@ class NavierStokesInpainting(InpaintingAlgorithm):
 
     def _inpaint(self, image: Image, mask: Mask) -> Image:
         """Perform inpainting using the Navier-Stokes algorithm."""
-        if len(image.shape) == 2:
-            height, width = image.shape
-            channels = 1
-            working_image = np.copy(image)[..., np.newaxis]  # Add channel dimension
-        else:
-            height, width, channels = image.shape
-            working_image = np.copy(image)
-
+        height, width, channels = image.shape
+        working_image = np.copy(image)
         nan_mask = np.isnan(working_image)
 
         # Initial fill with local mean while preserving color relationships
@@ -66,7 +60,9 @@ class NavierStokesInpainting(InpaintingAlgorithm):
                         weights = weights / np.sum(weights)
                         working_image[i, j] = np.average(neighbors, axis=0, weights=weights)
                     else:
-                        working_image[i, j] = np.mean(working_image[~np.any(nan_mask, axis=-1)])
+                        working_image[i, j] = np.mean(
+                            working_image[~np.any(nan_mask, axis=-1)], axis=0
+                        )
 
         # Compute coupled smoothness across channels
         smoothness = np.zeros_like(working_image)
