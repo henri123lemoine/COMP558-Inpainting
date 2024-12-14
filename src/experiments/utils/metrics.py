@@ -35,10 +35,34 @@ class InpaintingMetrics:
         """Compute metrics comparing original and inpainted result."""
         mask_bool = mask.astype(bool)
 
+        # Handle color images
+        channel_axis = -1 if len(original.shape) == 3 else None
+
+        # Compute SSIM on full image with appropriate channel_axis
+        ssim = structural_similarity(
+            original,
+            result,
+            data_range=255,
+            channel_axis=channel_axis,
+            win_size=3,  # Use smaller window size
+        )
+
         psnr = peak_signal_noise_ratio(original, result, data_range=255)
-        ssim = structural_similarity(original[mask_bool], result[mask_bool], data_range=255)
         mae = np.mean(np.abs(original.astype(float) - result.astype(float)))
-        emd = wasserstein_distance(original[mask_bool].flatten(), result[mask_bool].flatten())
+
+        # For EMD, we still need to handle each channel separately for color images
+        if channel_axis is not None:
+            emd = np.mean(
+                [
+                    wasserstein_distance(
+                        original[mask_bool, c].flatten(), result[mask_bool, c].flatten()
+                    )
+                    for c in range(original.shape[channel_axis])
+                ]
+            )
+        else:
+            emd = wasserstein_distance(original[mask_bool].flatten(), result[mask_bool].flatten())
+
         edge_error = cls._compute_edge_error(original, result, mask_bool)
 
         return cls(
