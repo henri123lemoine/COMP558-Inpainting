@@ -5,6 +5,11 @@ from loguru import logger
 from src.settings import LATEST_LOGS_FILE_PATH
 
 
+def worker_init():
+    """Initialize worker process with correct logging setup."""
+    setup_logger()
+
+
 def setup_logger(level: str = "INFO") -> None:
     """Setup loguru logger with custom formatting and file output."""
     logger.remove()
@@ -21,6 +26,4 @@ def setup_logger(level: str = "INFO") -> None:
         rotation="1 day",
         retention="1 month",
         enqueue=True,
-        backtrace=True,
-        diagnose=True,
     )

@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from loguru import logger
-from tqdm import tqdm
 
 from src.algorithms.base import Image, InpaintingAlgorithm, Mask
 from src.datasets.images import InpaintingDataset, InpaintSample
@@ -22,6 +21,7 @@ from src.experiments.utils.visualization import (
     plot_multiple_results,
 )
 from src.settings import DATA_PATH
+from src.utils.logging import worker_init
 
 FIGSIZE: tuple[int, int] = (15, 10)
 DPI: int = 300
@@ -61,15 +61,12 @@ class InpaintingBenchmark:
         self, algorithms: list[InpaintingAlgorithm], samples: dict[str, InpaintSample]
     ) -> pd.DataFrame:
         """Run complete benchmark suite in parallel."""
-        # Create a partial function with the algorithms argument fixed
         process_func = functools.partial(self._process_test_case, algorithms)
 
-        # Create a pool with default number of processes (uses all available cores)
-        with Pool() as pool:
-            # Map the processing function over all samples
-            all_results = pool.map(process_func, samples.items())
+        with Pool(initializer=worker_init) as pool:
+            all_results = list(pool.imap(process_func, samples.items()))
 
-        # Flatten the results list
+        # Flatten results
         results = [item for sublist in all_results for item in sublist]
 
         df = pd.DataFrame(results)
@@ -175,8 +172,6 @@ class InpaintingBenchmark:
         )
 
         for algorithm in algorithms:
-            logger.debug(f"Running {algorithm.name} on {base_name}")
-
             try:
                 start_time = time.time()
                 original, masked, mask, result = algorithm.inpaint(sample.original, sample.mask)
