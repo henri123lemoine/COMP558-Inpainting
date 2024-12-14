@@ -232,7 +232,7 @@ if __name__ == "__main__":
         mask_types=["brush", "text"],
     )
 
-    custom_samples = benchmark.dataset.load_custom_dataset()
+    custom_samples = benchmark.dataset.load_custom_dataset(target_size=CUSTOM_IMAGES_SIZE)
 
     all_samples = {**custom_samples, **real_samples, **synthetic_samples}
 
