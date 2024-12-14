@@ -45,14 +45,14 @@ class PatchMatchInpainting(InpaintingAlgorithm):
     """
 
     # Constants
-    MIN_VALID_RATIO: Final[float] = 0.2  # Minimum ratio of valid pixels in patch
+    MIN_VALID_RATIO: Final[float] = 0.1  # Minimum ratio of valid pixels in patch
     MAX_RANDOM_SAMPLES: Final[int] = 25  # Maximum random samples per position
 
     def __init__(
         self,
-        patch_size: int = 21,
-        num_iterations: int = 150,
-        search_ratio: float = 0.7,
+        patch_size: int = 7,
+        num_iterations: int = 5,
+        search_ratio: float = 0.5,
         alpha: float = 0.1,
     ) -> None:
         """Initialize PatchMatch algorithm with given parameters."""
@@ -97,7 +97,7 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         x2 = min(w, x + self.half_patch + 1)
 
         patch = image[y1:y2, x1:x2]
-        valid = mask[y1:y2, x1:x2] == 0  # Valid pixels are not masked
+        valid = mask[y1:y2, x1:x2] == 0  # Valid pixels are where mask is 0 (not to be inpainted)
 
         # Handle boundary cases with padding
         if patch.shape != (self.params.patch_size, self.params.patch_size):
@@ -108,7 +108,18 @@ class PatchMatchInpainting(InpaintingAlgorithm):
 
             padding = ((max(0, pad_y1), max(0, pad_y2)), (max(0, pad_x1), max(0, pad_x2)))
             patch = np.pad(patch, padding, mode="edge")
+            # Padded regions should be considered invalid
             valid = np.pad(valid, padding, mode="constant", constant_values=False)
+
+        assert patch.shape == (self.params.patch_size, self.params.patch_size)
+        assert valid.shape == (self.params.patch_size, self.params.patch_size)
+
+        if np.any(np.isnan(patch)):
+            logger.warning(f"NaN values in patch at ({y}, {x})")
+        if np.min(patch) < 0 or np.max(patch) > 1:
+            logger.warning(
+                f"Patch values out of range at ({y}, {x}): [{np.min(patch):.3f}, {np.max(patch):.3f}]"
+            )
 
         return patch, valid
 
@@ -129,8 +140,15 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         if valid_ratio < self.MIN_VALID_RATIO:
             return float("inf")
 
+        # Ensure patches are normalized and valid
+        if np.any(np.isnan(patch1)) or np.any(np.isnan(patch2)):
+            return float("inf")
+
+        patch1_valid = np.clip(patch1, 0, 1)
+        patch2_valid = np.clip(patch2, 0, 1)
+
         # Compute weighted SSD
-        diff = (patch1 - patch2) ** 2
+        diff = (patch1_valid - patch2_valid) ** 2
         weighted_diff = diff * self.weights * valid
 
         # Early exit if partial sum exceeds threshold
@@ -139,14 +157,19 @@ class PatchMatchInpainting(InpaintingAlgorithm):
             if partial_sum > early_exit:
                 return float("inf")
 
-        return np.sum(weighted_diff) / (np.sum(self.weights * valid) + 1e-8)
+        # Normalize by total weight of valid pixels
+        valid_weights = np.sum(self.weights * valid)
+        if valid_weights < 1e-8:
+            return float("inf")
+
+        return np.sum(weighted_diff) / valid_weights
 
     def _initialize_nn_field(
         self,
         image: Image,
         mask: Mask,
     ) -> NNField:
-        """Initialize nearest-neighbor field with good candidates."""
+        """Initialize nearest-neighbor field with multiple initialization strategies."""
         h, w = image.shape
         nn_field = np.zeros((h, w, 2), dtype=np.int32)
 
@@ -155,47 +178,42 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         if len(source_y) == 0:
             raise ValueError("No valid source regions found in mask")
 
-        # Pre-compute source patches for efficiency
-        source_patches = []
-        source_valids = []
-        for y, x in zip(source_y, source_x):
-            patch, valid = self._get_patch(image, mask, y, x)
-            source_patches.append(patch)
-            source_valids.append(valid)
-
         # Initialize target pixels
         target_y, target_x = np.where(mask > 0)
 
         for y, x in zip(target_y, target_x):
-            target_patch, target_valid = self._get_patch(image, mask, y, x)
-
-            # Try random candidates
+            # Strategy 1: Try closest valid pixels first
             best_dist = float("inf")
-            best_idx = None
+            best_pos = None
 
-            # Randomly sample source patches
-            sample_indices = np.random.choice(
-                len(source_y),
-                size=min(self.MAX_RANDOM_SAMPLES, len(source_y)),
-                replace=False,
-            )
+            # Check immediate neighbors first
+            for dy in [-1, 0, 1]:
+                for dx in [-1, 0, 1]:
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] == 0:
+                        dist = abs(dy) + abs(dx)
+                        if dist < best_dist:
+                            best_dist = dist
+                            best_pos = [ny, nx]
 
-            for idx in sample_indices:
-                dist = self._patch_distance(
-                    target_patch,
-                    source_patches[idx],
-                    target_valid,
-                    source_valids[idx],
-                    early_exit=best_dist,
-                )
-                if dist < best_dist:
-                    best_dist = dist
-                    best_idx = idx
+            if best_pos is not None:
+                nn_field[y, x] = best_pos
+                continue
 
-            if best_idx is not None:
-                nn_field[y, x] = [source_y[best_idx], source_x[best_idx]]
+            # Strategy 2: Sample random positions with distance weighting
+            candidates = []
+            for _ in range(min(self.MAX_RANDOM_SAMPLES, len(source_y))):
+                idx = np.random.randint(len(source_y))
+                sy, sx = source_y[idx], source_x[idx]
+                dist = np.sqrt((y - sy) ** 2 + (x - sx) ** 2)
+                candidates.append((dist, [sy, sx]))
+
+            # Take the closest among random samples
+            if candidates:
+                candidates.sort(key=lambda x: x[0])
+                nn_field[y, x] = candidates[0][1]
             else:
-                # Fallback to closest valid pixel
+                # Fallback to first valid pixel
                 nn_field[y, x] = [source_y[0], source_x[0]]
 
         return nn_field
@@ -207,7 +225,7 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         nn_field: NNField,
         reverse: bool = False,
     ) -> None:
-        """Propagate good matches to neighboring pixels."""
+        """Propagate good matches to neighboring pixels, checking all directions."""
         h, w = image.shape
         y_range = range(h - 1, -1, -1) if reverse else range(h)
         x_range = range(w - 1, -1, -1) if reverse else range(w)
@@ -233,8 +251,12 @@ class PatchMatchInpainting(InpaintingAlgorithm):
                         source_valid,
                     )
 
-                # Try propagating from neighbors
-                for dy, dx in [(0, -1), (-1, 0)] if not reverse else [(0, 1), (1, 0)]:
+                # Check all four directions
+                neighbors = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+                if reverse:
+                    neighbors = [(-dy, -dx) for dy, dx in neighbors]
+
+                for dy, dx in neighbors:
                     ny, nx = y + dy, x + dx
                     if 0 <= ny < h and 0 <= nx < w:
                         prop_y = nn_field[ny, nx][0] - dy
@@ -315,9 +337,8 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         self,
         image: Image,
         mask: Mask,
-        **kwargs,
     ) -> Image:
-        """Inpaint using PatchMatch algorithm."""
+        """Inpaint using enhanced PatchMatch algorithm."""
         if len(image.shape) != 2:
             raise ValueError("Only grayscale images are supported")
 
@@ -328,45 +349,78 @@ class PatchMatchInpainting(InpaintingAlgorithm):
                 f"patch size {self.params.patch_size}"
             )
 
-        logger.info(
-            f"Starting PatchMatch inpainting: {h}x{w} image, "
-            f"{np.sum(mask > 0)} pixels to inpaint"
-        )
+        # Debug prints to understand input values
+        logger.info(f"Initial image range: [{np.min(image):.3f}, {np.max(image):.3f}]")
+        logger.info(f"Mask range: [{np.min(mask):.3f}, {np.max(mask):.3f}]")
+        logger.info(f"Mask sum: {np.sum(mask > 0)} pixels to inpaint")
 
-        # Initialize result image
+        # Initialize result image - ensure we start with the correct values
         result = image.copy()
-        current_mask = mask.copy()
+        # Explicitly set masked regions to image mean as initial guess
+        initial_guess = np.mean(image[mask == 0])
+        result[mask > 0] = initial_guess
+
+        current_mask = mask.copy()  # mask > 0 indicates regions to inpaint
 
         # Main PatchMatch iterations
         for iter_idx in tqdm(range(self.params.num_iterations), desc="PatchMatch"):
+            # Debug: check result range before updating
+            logger.debug(
+                f"Iteration {iter_idx}, result range: [{np.min(result):.3f}, {np.max(result):.3f}]"
+            )
+
             # Initialize NN field
             nn_field = self._initialize_nn_field(result, current_mask)
 
-            # PatchMatch iterations
-            for _ in range(2):  # Inner iterations for refinement
-                # Forward and backward propagation
+            # Multiple refinement iterations
+            for _ in range(3):
                 self._propagate(result, current_mask, nn_field, reverse=False)
                 self._random_search(result, current_mask, nn_field)
                 self._propagate(result, current_mask, nn_field, reverse=True)
 
             # Update image using current NN field
             new_result = result.copy()
-            masked_coords = np.where(current_mask > 0)
+            masked_coords = np.where(current_mask > 0)  # These are pixels we want to fill
+
             for y, x in zip(*masked_coords):
                 nn_y, nn_x = nn_field[y, x]
-                new_result[y, x] = result[nn_y, nn_x]
+                # Only copy from unmasked source pixels
+                if not current_mask[nn_y, nn_x]:
+                    new_result[y, x] = result[nn_y, nn_x]
+                else:
+                    logger.warning(f"Tried to copy from masked pixel at ({nn_y}, {nn_x})")
 
-            # Blend results with alpha
-            result = (1 - self.params.alpha) * result + self.params.alpha * new_result
+            # Debug: check new_result values
+            logger.debug(f"New result range: [{np.min(new_result):.3f}, {np.max(new_result):.3f}]")
 
-            # Update mask for next iteration
+            # Only blend masked regions
+            blend_mask = current_mask.astype(float)  # Only blend where mask > 0
+            blend_mask = gaussian_filter(blend_mask, sigma=1.0)
+            blend_mask = np.clip(blend_mask, 0, 1)
+
+            # Debug: check blend mask
+            logger.debug(f"Blend mask range: [{np.min(blend_mask):.3f}, {np.max(blend_mask):.3f}]")
+
+            # Only update pixels in the masked region
+            result = result * (1 - blend_mask) + new_result * blend_mask
+
+            # Update mask for next iteration, but only in the original masked region
             if iter_idx < self.params.num_iterations - 1:
-                current_mask = gaussian_filter(current_mask, sigma=0.5) > 0.5
+                new_mask = gaussian_filter(current_mask.astype(float), sigma=0.5) > 0.5
+                # Only update within original masked region
+                new_mask = new_mask & (mask > 0)
+                current_mask = new_mask
+
+        # Final verification
+        result = np.clip(result, 0, 1)
+        # Ensure we haven't modified unmasked regions
+        result[mask == 0] = image[mask == 0]
 
         logger.info("PatchMatch inpainting completed")
+        logger.info(f"Final result range: [{np.min(result):.3f}, {np.max(result):.3f}]")
         return result
 
 
 if __name__ == "__main__":
-    inpainter = PatchMatchInpainting()
-    inpainter.run_example(scale_factor=0.5)
+    inpainter = PatchMatchInpainting(patch_size=5, num_iterations=15, search_ratio=0.5, alpha=0.1)
+    inpainter.run_example(scale_factor=0.25)
