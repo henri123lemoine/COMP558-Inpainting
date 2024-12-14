@@ -1,7 +1,8 @@
+import argparse
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import NamedTuple, TypeAlias
+from typing import ClassVar, TypeAlias
 
 import cv2
 import numpy as np
@@ -245,12 +246,19 @@ class InpaintingAlgorithm(ABC):
         mask_path: str | Path = Path("test-images/masks/portrait.png"),
         scale_factor=1.0,
         save_output=True,
+        greyscale=False,
     ):
         """Run inpainting experiment with various options."""
         import cv2
         import matplotlib.pyplot as plt
 
-        image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        image = cv2.imread(str(image_path))
+        if greyscale:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            # Convert back to 3 channels to maintain compatibility with rest of pipeline
+            image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+        else:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
 
         if image is None:
@@ -276,12 +284,12 @@ class InpaintingAlgorithm(ABC):
         plt.figure(figsize=(15, 5))
 
         plt.subplot(1, 4, 1)
-        plt.imshow(original, cmap="gray")
+        plt.imshow(original)
         plt.title("Original Image")
         plt.axis("off")
 
         plt.subplot(1, 4, 2)
-        plt.imshow(masked, cmap="gray")
+        plt.imshow(masked)
         plt.title("Masked Image")
         plt.axis("off")
 
@@ -291,7 +299,7 @@ class InpaintingAlgorithm(ABC):
         plt.axis("off")
 
         plt.subplot(1, 4, 4)
-        plt.imshow(inpainted, cmap="gray")
+        plt.imshow(inpainted)
         plt.title("Inpainted Result")
         plt.axis("off")
 
