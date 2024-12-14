@@ -310,7 +310,7 @@ if __name__ == "__main__":
         target_size=(CUSTOM_IMAGES_SIZE, CUSTOM_IMAGES_SIZE)
     )
 
-    all_samples = real_samples  # {**custom_samples, **real_samples, **synthetic_samples}
+    all_samples = {**custom_samples, **real_samples, **synthetic_samples}
 
     logger.info(f"Running benchmark on {len(all_samples)} test cases")
     results_df = benchmark.run(algorithms, samples=all_samples)
