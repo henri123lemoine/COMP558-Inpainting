@@ -12,11 +12,51 @@ Mask: TypeAlias = np.ndarray  # Shape: (H, W), dtype: bool or uint8
 PathLike: TypeAlias = str | Path
 
 
+@dataclass(frozen=True)
+class InpaintingParams:
+    """Base parameters for all inpainting algorithms."""
+
+    image_path: str = "test-images/portrait.png"
+    mask_path: str = "test-images/masks/portrait.png"
+    scale_factor: float = 1.0
+    save_output: bool = True
+    greyscale: bool = False
+
+    @classmethod
+    def add_to_parser(cls, parser: argparse.ArgumentParser) -> None:
+        """Add parameters to parser based on dataclass fields."""
+        for field in fields(cls):
+            if field.type == bool:
+                # Handle booleans specially to use store_true/false
+                if field.default:
+                    parser.add_argument(
+                        f"--no-{field.name.replace('_', '-')}",
+                        dest=field.name,
+                        action="store_false",
+                    )
+                else:
+                    parser.add_argument(f"--{field.name.replace('_', '-')}", action="store_true")
+            else:
+                parser.add_argument(
+                    f"--{field.name.replace('_', '-')}",
+                    type=field.type,
+                    default=field.default,
+                    help=f"{field.name} parameter",
+                )
+
+    def __post_init__(self) -> None:
+        """Base validation, can be extended by child classes."""
+        pass
+
+
 class InpaintingAlgorithm(ABC):
     """Base class for all inpainting algorithms."""
 
-    def __init__(self, name: str):
+    params_class: ClassVar[type[InpaintingParams]] = InpaintingParams
+
+    def __init__(self, name: str, **kwargs):
         self.name = name
+        self.params = self.params_class(**kwargs)
         logger.debug(f"Initialized {self.name} algorithm")
 
     def validate_inputs(self, image: Image, mask: Mask) -> None:
@@ -261,6 +301,25 @@ class InpaintingAlgorithm(ABC):
             plt.savefig("comparison.png")
 
         plt.show()
+
+    @classmethod
+    def parse_args(cls) -> InpaintingParams:
+        """Parse command line arguments."""
+        parser = argparse.ArgumentParser(description=f"Run {cls.__name__} inpainting")
+        cls.params_class.add_to_parser(parser)
+        args = parser.parse_args()
+        return cls.params_class(**vars(args))
+
+    def run(self) -> None:
+        """Run the inpainting using command line arguments."""
+        self.params = self.parse_args()
+        self.run_example(
+            image_path=self.params.image_path,
+            mask_path=self.params.mask_path,
+            scale_factor=self.params.scale_factor,
+            save_output=self.params.save_output,
+            greyscale=self.params.greyscale,
+        )
 
 
 if __name__ == "__main__":
