@@ -171,7 +171,7 @@ class MaskGenerator:
         self,
         image: npt.NDArray[np.uint8],
         text: str = "COMP558 IS THE BEST CLASS",
-        font_scale: float = 1 / 250,  # Font scale relative to image size
+        font_scale: float = 1 / 150,  # Font scale relative to image size
         thickness_scale: int = 1 / 50,  # Thickness relative to image size
     ) -> npt.NDArray[np.uint8]:
         """Create mask from text, automatically wrapping to fit image width."""
@@ -260,7 +260,6 @@ class MaskGenerator:
     @staticmethod
     def load_masks_from_directory(
         mask_dir: Path | str = "test-images/masks/",
-        target_size: tuple[int, int] | None = None,
         threshold: int = 127,
         recursive: bool = True,
     ) -> dict[str, npt.NDArray[np.bool_]]:
@@ -270,7 +269,6 @@ class MaskGenerator:
             - Supports common image formats (png, jpg, etc.)
             - Converts color images to grayscale
             - Thresholds grayscale images to create binary masks
-            - Automatically resizes masks if target_size is provided
         """
         mask_dir = Path(mask_dir)
         if not mask_dir.exists():
@@ -295,10 +293,6 @@ class MaskGenerator:
             if mask is None:
                 logger.warning(f"Could not read mask file: {mask_file}")
                 continue
-
-            # Resize if needed
-            if target_size is not None:
-                mask = cv2.resize(mask, (target_size[1], target_size[0]))  # cv2 uses (w,h)
 
             # Threshold to create binary mask
             _, mask = cv2.threshold(mask, threshold, 255, cv2.THRESH_BINARY)
@@ -411,7 +405,6 @@ if __name__ == "__main__":
     # Test loading them back
     loaded_masks = MaskGenerator.load_masks_from_directory(
         test_mask_dir,
-        target_size=(128, 128),  # Test resizing
     )
 
     # Visualize loaded masks

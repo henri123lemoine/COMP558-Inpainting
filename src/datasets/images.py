@@ -281,16 +281,19 @@ class InpaintingDataset:
         self,
         image_dir: Path | str = "test-images/",
         mask_dir: Path | str = "test-images/masks/",
-        target_size: tuple[int, int] | None = None,
+        target_size: int = 256,
     ) -> dict[str, InpaintSample]:
         """Load custom image-mask pairs for inpainting.
 
         The function expects masks to be named with _mask suffix, e.g.:
         - test-images/image1.png
         - test-images/masks/image1.png
+
+        Images larger than target_size on their smallest dimension will be scaled down
+        while preserving aspect ratio.
         """
         # Load all available masks first
-        masks = MaskGenerator.load_masks_from_directory(mask_dir, target_size=target_size)
+        masks = MaskGenerator.load_masks_from_directory(mask_dir)
         if not masks:
             raise ValueError(f"No masks found in {mask_dir}")
 
@@ -308,6 +311,18 @@ class InpaintingDataset:
         if not image_files:
             raise ValueError(f"No images found in {image_dir}")
 
+        def resize_if_needed(image: np.ndarray, target_size: int) -> np.ndarray:
+            """Resize image if its smallest dimension is larger than target_size."""
+            height, width = image.shape
+            min_dim = min(height, width)
+
+            if min_dim > target_size:
+                scale = target_size / min_dim
+                new_height = int(height * scale)
+                new_width = int(width * scale)
+                return cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+            return image
+
         samples = {}
         for image_file in image_files:
             # Read and preprocess image
@@ -316,9 +331,8 @@ class InpaintingDataset:
                 logger.warning(f"Could not read image file: {image_file}")
                 continue
 
-            # Resize if needed
-            if target_size is not None:
-                image = cv2.resize(image, (target_size[1], target_size[0]))
+            # Resize image if needed
+            image = resize_if_needed(image, target_size)
 
             # Look for corresponding mask
             image_name = image_file.stem
@@ -334,7 +348,13 @@ class InpaintingDataset:
                 logger.warning(f"No matching mask found for custom {image_name}")
                 continue
 
+            # Resize mask to match image dimensions
             mask = found_mask.astype(np.uint8) * 255
+            if mask.shape != image.shape:
+                mask = cv2.resize(
+                    mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST
+                )
+
             masked = self._apply_mask(image, mask)
 
             samples[f"custom_{image_name}"] = InpaintSample(
@@ -383,10 +403,6 @@ class InpaintingDataset:
             if image is None:
                 logger.warning(f"Could not read image file: {image_file}")
                 continue
-
-            # Resize if needed
-            if target_size is not None:
-                image = cv2.resize(image, (target_size[1], target_size[0]))
 
             # Generate masks and create samples
             image_name = image_file.stem
@@ -519,7 +535,6 @@ if __name__ == "__main__":
         custom_samples = dataset.load_custom_dataset(
             image_dir="test-images",
             mask_dir="test-images/masks",
-            target_size=(args.size, args.size),
         )
 
         for case_name, sample in custom_samples.items():

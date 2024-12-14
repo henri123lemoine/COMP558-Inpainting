@@ -296,8 +296,7 @@ if __name__ == "__main__":
 
     synthetic_samples = benchmark.dataset.generate_synthetic_dataset(
         size=SYNTHETIC_SIZE,
-        mask_types=["brush", "center", "random"],
-        selected_cases=["checkerboard", "lines"],
+        mask_types=["brush", "center", "random", "text"],
     )
 
     real_samples = benchmark.dataset.load_real_dataset(
@@ -306,9 +305,7 @@ if __name__ == "__main__":
         mask_types=["brush", "text"],
     )
 
-    custom_samples = benchmark.dataset.load_custom_dataset(
-        target_size=(CUSTOM_IMAGES_SIZE, CUSTOM_IMAGES_SIZE)
-    )
+    custom_samples = benchmark.dataset.load_custom_dataset()
 
     all_samples = {**custom_samples, **real_samples, **synthetic_samples}
 

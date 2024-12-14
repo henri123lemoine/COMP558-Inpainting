@@ -41,7 +41,7 @@ if __name__ == "__main__":
         n_images=benchmark.config.n_real_images,
         size=benchmark.config.real_size,
     )
-    custom_samples = benchmark.dataset.load_custom_dataset(target_size=benchmark.config.custom_size)
+    custom_samples = benchmark.dataset.load_custom_dataset()
     all_samples = {**synthetic_samples, **real_samples, **custom_samples}
 
     logger.info(f"Running benchmark on {len(all_samples)} test cases")
