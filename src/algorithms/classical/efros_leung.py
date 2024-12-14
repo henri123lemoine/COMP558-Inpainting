@@ -248,7 +248,7 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         total_pixels = int(np.sum(mask > 0.5))
         filled_pixels = 0
 
-        logger.info(f"Starting inpainting of {total_pixels} pixels")
+        logger.debug(f"Starting inpainting of {total_pixels} pixels")
 
         with tqdm(total=total_pixels, desc="Efros-Leung") as pbar:
             while filled_pixels < total_pixels:

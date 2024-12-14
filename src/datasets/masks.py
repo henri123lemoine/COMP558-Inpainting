@@ -304,7 +304,7 @@ class MaskGenerator:
                 f"(size: {mask.shape}, coverage: {np.mean(mask):.1%})"
             )
 
-        logger.info(f"Loaded {len(masks)} masks from {mask_dir}")
+        logger.debug(f"Loaded {len(masks)} masks from {mask_dir}")
         return masks
 
 
@@ -348,11 +348,11 @@ if __name__ == "__main__":
         for mask_type in ["center", "random", "brush", "text"]:
             mask = mask_gen.generate(test_image, mask_type)
             coverage = np.mean(mask > 0)
-            logger.info(f"Config {i+1}, {mask_type} mask coverage: {coverage:.1%}")
+            logger.debug(f"Config {i+1}, {mask_type} mask coverage: {coverage:.1%}")
 
             if mask_type != "center":  # Skip connectivity check for center mask
                 labeled, num_features = ndimage.label(mask)
-                logger.info(f"Config {i+1}, {mask_type} mask components: {num_features}")
+                logger.debug(f"Config {i+1}, {mask_type} mask components: {num_features}")
 
             masks.append((mask_type, mask))
 

@@ -197,12 +197,12 @@ class InpaintingDataset:
             image_path = case_dir / "image.png" if self.save_samples else None
             if not force_regenerate and image_path and image_path.exists():
                 image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
-                logger.info(f"Loaded existing {case_name} image")
+                logger.debug(f"Loaded existing {case_name} image")
             else:
                 image = gen_func(self.image_generator, size)
                 if self.save_samples:
                     cv2.imwrite(str(image_path), image)
-                logger.info(f"Generated {case_name} image")
+                logger.debug(f"Generated {case_name} image")
 
             # Generate masks
             for mask_type in mask_types:
@@ -210,12 +210,12 @@ class InpaintingDataset:
 
                 if not force_regenerate and mask_path and mask_path.exists():
                     mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
-                    logger.info(f"Loaded existing {case_name} {mask_type} mask")
+                    logger.debug(f"Loaded existing {case_name} {mask_type} mask")
                 else:
                     mask = self.mask_generator.generate(image, mask_type)
                     if self.save_samples:
                         cv2.imwrite(str(mask_path), mask)
-                    logger.info(f"Generated {case_name} {mask_type} mask")
+                    logger.debug(f"Generated {case_name} {mask_type} mask")
 
                 masked = self._apply_mask(image, mask)
                 dataset[f"{case_name}_{mask_type}"] = InpaintSample(
@@ -266,7 +266,7 @@ class InpaintingDataset:
                     original=image, masked=masked, mask=mask, category=ImageCategory.REAL
                 )
 
-            logger.info(f"Processed {case_name}")
+            logger.debug(f"Processed {case_name}")
 
         return real_cases
 
@@ -339,7 +339,7 @@ class InpaintingDataset:
                 f"(size: {image.shape}, mask coverage: {np.mean(mask > 0):.1%})"
             )
 
-        logger.info(f"Loaded {len(samples)} custom image-mask pairs")
+        logger.debug(f"Loaded {len(samples)} custom image-mask pairs")
         return samples
 
     def load_images_from_directory(
@@ -406,7 +406,7 @@ class InpaintingDataset:
                     f"(size: {image.shape}, mask coverage: {np.mean(mask > 0):.1%})"
                 )
 
-        logger.info(f"Loaded and processed {len(image_files)} images from {image_dir}")
+        logger.debug(f"Loaded and processed {len(image_files)} images from {image_dir}")
         return samples
 
 
@@ -469,7 +469,7 @@ if __name__ == "__main__":
 
     def test_synthetic():
         """Test synthetic image generation"""
-        logger.info("Testing synthetic image generation...")
+        logger.debug("Testing synthetic image generation...")
 
         # Test individual image generation
         generator = ImageGenerator()
@@ -491,7 +491,7 @@ if __name__ == "__main__":
             plt.axis("off")
             plt.savefig(save_dir / f"test_{name.lower()}.png", bbox_inches="tight", dpi=150)
             plt.close()
-            logger.info(f"Generated {name} pattern")
+            logger.debug(f"Generated {name} pattern")
 
         # Test full synthetic dataset generation
         synthetic_samples = dataset.generate_synthetic_dataset(
@@ -503,11 +503,11 @@ if __name__ == "__main__":
         assert np.any(np.isnan(sample.masked)), "Masked image should contain NaN values"
         assert not np.any(np.isnan(sample.original)), "Original image should not contain NaN values"
 
-        logger.info("Synthetic tests completed successfully!")
+        logger.debug("Synthetic tests completed successfully!")
 
     def test_custom():
         """Test custom dataset loading"""
-        logger.info("Testing custom dataset loading with existing masks...")
+        logger.debug("Testing custom dataset loading with existing masks...")
 
         custom_samples = dataset.load_custom_dataset(
             image_dir="test-images",
@@ -519,9 +519,9 @@ if __name__ == "__main__":
             fig = plot_sample(sample, f"Custom: {case_name}")
             fig.savefig(save_dir / f"test_custom_{case_name}.png", bbox_inches="tight", dpi=300)
             plt.close()
-            logger.info(f"Generated visualization for custom sample {case_name}")
+            logger.debug(f"Generated visualization for custom sample {case_name}")
 
-        logger.info("Custom dataset tests completed successfully!")
+        logger.debug("Custom dataset tests completed successfully!")
 
     # Run selected tests
     if args.test_type == "synthetic" or args.test_type == "all":

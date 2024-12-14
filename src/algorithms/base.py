@@ -37,7 +37,7 @@ class InpaintingAlgorithm(ABC):
 
     def __init__(self, name: str):
         self.name = name
-        logger.info(f"Initialized {self.name} algorithm")
+        logger.debug(f"Initialized {self.name} algorithm")
 
     def validate_inputs(self, image: Image, mask: Mask) -> None:
         """Validate input image and mask."""
