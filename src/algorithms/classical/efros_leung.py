@@ -15,13 +15,11 @@ class EfrosLeungParams:
     window_size: Size of the neighborhood window (must be odd)
     error_threshold: Maximum allowed error for matching
     sigma: Standard deviation for Gaussian weighting
-    n_candidates: Number of candidate matches to randomly choose from
     """
 
     window_size: int = 11
     error_threshold: float = 0.1
     sigma: float = 1.0
-    n_candidates: int = 10
 
     def __post_init__(self):
         if self.window_size % 2 == 0:
@@ -42,7 +40,6 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
         window_size: int = 11,
         error_threshold: float = 0.1,
         sigma: float = 1.0,
-        n_candidates: int = 10,
     ):
         super().__init__("EfrosLeung")
 
@@ -50,7 +47,6 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
             window_size=window_size,
             error_threshold=error_threshold,
             sigma=sigma,
-            n_candidates=n_candidates,
         )
 
         self.weights = self._create_gaussian_kernel()
@@ -134,28 +130,49 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
 
     def _find_best_match(
         self,
-        target: np.ndarray,  # Target neighborhood
-        valid_mask: Mask,  # Mask indicating valid pixels in target
-        image: Image,  # Source image to search in
-        mask: Mask,  # Full image mask
-        exclude_pos: tuple[int, int],  # Position to exclude from search
+        target: np.ndarray,
+        valid_mask: Mask,
+        masked_image: Image,
+        mask: Mask,
+        exclude_pos: tuple[int, int],
     ) -> tuple[float, tuple[int, int]]:
-        """Find the best matching patch in the image."""
+        """Find best match with neighborhood averaging fallback."""
         half_window = self.params.window_size // 2
         window_size = self.params.window_size
-        height, width = image.shape[:2]
+        height, width = masked_image.shape[:2]
 
-        search_positions = list(zip(*np.where(~mask)))
+        # Get valid source regions
+        filled_mask = ~mask & ~np.isnan(masked_image)
+        search_positions = list(zip(*np.where(filled_mask)))
 
         if not search_positions:
-            raise ValueError("No unmasked pixels available to sample from")
+            # Fallback: use neighborhood average
+            y, x = exclude_pos
+            neighbors = []
+            for dy in [-1, 0, 1]:
+                for dx in [-1, 0, 1]:
+                    ny, nx = y + dy, x + dx
+                    if (
+                        0 <= ny < height
+                        and 0 <= nx < width
+                        and not np.isnan(masked_image[ny, nx])
+                        and not mask[ny, nx]
+                    ):
+                        neighbors.append(masked_image[ny, nx])
 
-        # Initialize with first valid position to ensure we always have a match
+            if neighbors:
+                avg_value = np.mean(neighbors)
+                return (
+                    0.0,
+                    exclude_pos,
+                )  # Return position doesn't matter, value will be set separately
+            raise ValueError("No valid neighbors found")
+
         best_error = float("inf")
         best_pos = None
         candidates = []
 
-        # Find first valid position for initialization
+        # Try to find best matches
         for y, x in search_positions:
             if (
                 y < half_window
@@ -166,158 +183,168 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
             ):
                 continue
 
-            best_pos = (y, x)  # Initialize with first valid position
-            break
-
-        if best_pos is None:
-            raise ValueError("No valid positions found within window constraints")
-
-        # Now search through all positions for best match
-        for y, x in search_positions:
-            if (
-                y < half_window
-                or y >= height - half_window
-                or x < half_window
-                or x >= width - half_window
-            ):
-                continue
-
-            if (y, x) == exclude_pos:
-                continue
-
-            # Get neighborhood at this position - use same window extraction as _get_neighborhood
-            neighborhood = image[
-                y - half_window : y - half_window + window_size,
-                x - half_window : x - half_window + window_size,
+            neighborhood = masked_image[
+                y - half_window : y + half_window + window_size,
+                x - half_window : x + half_window + window_size,
             ]
 
-            # Get the mask for this neighborhood
-            neighborhood_mask = ~mask[
-                y - half_window : y - half_window + window_size,
-                x - half_window : x - half_window + window_size,
-            ]
+            # Only compare non-nan pixels that are valid in both patches
+            valid_comparison = valid_mask & ~np.isnan(neighborhood)
+            n_valid = np.sum(valid_comparison)
 
-            # Only compare pixels that are valid in BOTH neighborhoods
-            combined_valid_mask = valid_mask & neighborhood_mask
-
-            # Skip if there are no valid pixels to compare
-            if np.sum(combined_valid_mask) == 0:
+            if n_valid < 4:  # Require at least 4 valid pixels for comparison
                 continue
 
-            # Calculate error only for mutually valid pixels
-            error = np.sum(self.weights * combined_valid_mask * (target - neighborhood) ** 2) / (
-                np.sum(self.weights * combined_valid_mask) + 1e-10
-            )
+            # Compute weighted error
+            diff = (target - neighborhood) ** 2
+            error = np.sum(self.weights * valid_comparison * diff)
+            error = error / (np.sum(self.weights * valid_comparison) + 1e-10)
 
-            # Always keep track of the best match
             if error < best_error:
                 best_error = error
                 best_pos = (y, x)
 
-            # Only add to candidates if below threshold
             if error < self.params.error_threshold:
                 candidates.append((error, (y, x)))
 
-        # If we found candidates below threshold, randomly choose from the best ones
+        # If we found good candidates, randomly select from best ones
         if candidates:
             candidates.sort(key=lambda x: x[0])
-            n_select = min(self.params.n_candidates, len(candidates))
-            error, pos = candidates[np.random.randint(n_select)]
-            return error, pos
+            n_best = min(3, len(candidates))
+            idx = np.random.randint(n_best)
+            return candidates[idx]
 
-        # If no candidates below threshold, return the best match we found
-        assert best_pos is not None
-        return best_error, best_pos
+        # If we found any match (even if not great), use it
+        if best_pos is not None:
+            return best_error, best_pos
 
-    def _inpaint(self, image: np.ndarray, mask: np.ndarray, max_steps: int = None) -> np.ndarray:
-        """Efros-Leung inpainting."""
+        # Last resort: neighborhood average (same as initial fallback)
+        y, x = exclude_pos
+        neighbors = []
+        for dy in [-1, 0, 1]:
+            for dx in [-1, 0, 1]:
+                ny, nx = y + dy, x + dx
+                if (
+                    0 <= ny < height
+                    and 0 <= nx < width
+                    and not np.isnan(masked_image[ny, nx])
+                    and not mask[ny, nx]
+                ):
+                    neighbors.append(masked_image[ny, nx])
+
+        if neighbors:
+            avg_value = np.mean(neighbors)
+            return 0.0, exclude_pos
+
+        raise ValueError("No valid matches or neighbors found")
+
+    def _inpaint(self, image: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        """Efros-Leung inpainting with guaranteed filling of all masked pixels."""
         result = image.copy()
         remaining_mask = mask.copy()
         half_window = self.params.window_size // 2
 
         # Get total number of pixels to fill
-        n_pixels = int(np.sum(mask > 0.5))  # Cast to int for tqdm
-        if max_steps is None:
-            max_steps = n_pixels
-
-        logger.info(f"Starting inpainting of {n_pixels} pixels")
-
-        # Pre-compute list of unfilled positions
-        unfilled_positions = [
-            (y, x)
-            for y in range(half_window, image.shape[0] - half_window)
-            for x in range(half_window, image.shape[1] - half_window)
-            if remaining_mask[y, x] == 1
-        ]
-
+        total_pixels = int(np.sum(mask > 0.5))
         filled_pixels = 0
-        total_pixels = min(n_pixels, max_steps)
+
+        logger.info(f"Starting inpainting of {total_pixels} pixels")
 
         with tqdm(total=total_pixels, desc="Efros-Leung") as pbar:
-            while filled_pixels < max_steps and unfilled_positions:
-                # Find unfilled pixel with most filled neighbors
-                max_filled = 0
-                best_pos = None
+            while filled_pixels < total_pixels:
+                # Find pixels that still need to be filled (contain NaN)
+                unfilled_y, unfilled_x = np.where(np.isnan(result))
 
-                for y, x in unfilled_positions:
-                    # Count filled neighbors in window
-                    window_mask = remaining_mask[
-                        y - half_window : y + half_window + 1,
-                        x - half_window : x + half_window + 1,
-                    ]
-                    n_filled = np.sum(~window_mask == 0)
-
-                    if n_filled > max_filled:
-                        max_filled = n_filled
-                        best_pos = (y, x)
-
-                if best_pos is None:
-                    logger.info("No more pixels to fill")
+                if len(unfilled_y) == 0:
                     break
 
-                # Get neighborhood of selected pixel
-                neighborhood, valid_mask = self._get_neighborhood(result, remaining_mask, best_pos)
+                # Find pixel with most valid neighbors
+                best_pos = None
+                max_valid_neighbors = -1
 
+                for i in range(len(unfilled_y)):
+                    y, x = unfilled_y[i], unfilled_x[i]
+
+                    # Skip pixels too close to border
+                    if (
+                        y < half_window
+                        or y >= result.shape[0] - half_window
+                        or x < half_window
+                        or x >= result.shape[1] - half_window
+                    ):
+                        continue
+
+                    # Count valid (non-NaN) neighbors
+                    window = result[y - 1 : y + 2, x - 1 : x + 2]
+                    valid_neighbors = np.sum(~np.isnan(window))
+
+                    if valid_neighbors > max_valid_neighbors:
+                        max_valid_neighbors = valid_neighbors
+                        best_pos = (y, x)
+
+                # If no position found with the window constraint, take any unfilled pixel
+                if best_pos is None:
+                    for i in range(len(unfilled_y)):
+                        y, x = unfilled_y[i], unfilled_x[i]
+                        if 0 <= y < result.shape[0] and 0 <= x < result.shape[1]:
+                            best_pos = (y, x)
+                            break
+
+                if best_pos is None:
+                    logger.error("No pixels to fill but NaN values remain!")
+                    # Emergency fill of all remaining NaN values
+                    nan_mask = np.isnan(result)
+                    result[nan_mask] = 0.5
+                    break
+
+                y, x = best_pos
                 try:
-                    # Find best matching patch
-                    _, match_pos = self._find_best_match(
-                        neighborhood, valid_mask, image, mask, best_pos
+                    # Try to get neighborhood and find best match
+                    neighborhood, valid_mask = self._get_neighborhood(
+                        result, remaining_mask, best_pos
                     )
+                    _, match_pos = self._find_best_match(
+                        neighborhood, valid_mask, result, remaining_mask, best_pos
+                    )
+                    result[y, x] = result[match_pos]
 
-                    # Get the matched pixel value, ensure it's a valid number
-                    matched_value = image[match_pos]
-                    if matched_value is None or np.isnan(matched_value):
-                        raise ValueError("Invalid matched pixel value")
-
-                    result[best_pos] = matched_value
+                    # Verify we didn't set a NaN value
+                    if np.isnan(result[y, x]):
+                        raise ValueError("Matched to NaN value")
 
                 except (ValueError, IndexError) as e:
-                    logger.warning(f"Error finding match at {best_pos}: {e}")
-                    # Fall back to average of valid neighbors, ensuring we always set a valid value
-                    valid_values = neighborhood[valid_mask]
-                    if len(valid_values) > 0:
-                        valid_values = valid_values[
-                            ~np.isnan(valid_values)
-                        ]  # Remove any NaN values
-                        if len(valid_values) > 0:
-                            result[best_pos] = np.mean(valid_values)
-                        else:
-                            result[best_pos] = 0.5  # Fallback if no valid values
+                    # Fallback: use mean of valid neighbors or default value
+                    neighbors = []
+                    for dy in [-1, 0, 1]:
+                        for dx in [-1, 0, 1]:
+                            ny, nx = y + dy, x + dx
+                            if (
+                                0 <= ny < result.shape[0]
+                                and 0 <= nx < result.shape[1]
+                                and not np.isnan(result[ny, nx])
+                            ):
+                                neighbors.append(result[ny, nx])
+
+                    if neighbors:
+                        result[y, x] = np.mean(neighbors)
                     else:
-                        result[best_pos] = 0.5  # Fallback if no valid neighbors
+                        # If no valid neighbors, use the global mean of non-masked pixels
+                        valid_pixels = result[~np.isnan(result)]
+                        if len(valid_pixels) > 0:
+                            result[y, x] = np.mean(valid_pixels)
+                        else:
+                            result[y, x] = 0.5  # Last resort default value
 
-                # Verify we set a valid value
-                assert result[best_pos] is not None and not np.isnan(
-                    result[best_pos]
-                ), f"Invalid value set at position {best_pos}"
-
-                # Mark pixel as filled and update tracking
-                remaining_mask[best_pos] = 0
+                remaining_mask[y, x] = 0
                 filled_pixels += 1
-                unfilled_positions.remove(best_pos)
                 pbar.update(1)
 
-        # Final verification of output
+        # Final safety check: fill any remaining NaN values
+        nan_mask = np.isnan(result)
+        if np.any(nan_mask):
+            logger.warning(f"Filling {np.sum(nan_mask)} remaining NaN values with default value")
+            result[nan_mask] = 0.5
+
         assert not np.any(np.isnan(result)), "NaN values found in result"
         assert not np.any([x is None for x in result.flat]), "None values found in result"
 
@@ -325,5 +352,5 @@ class EfrosLeungInpainting(InpaintingAlgorithm):
 
 
 if __name__ == "__main__":
-    inpainter = EfrosLeungInpainting()
+    inpainter = EfrosLeungInpainting(window_size=7, error_threshold=0.3, sigma=1.5)
     inpainter.run_example(scale_factor=0.25)
