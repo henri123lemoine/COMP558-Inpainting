@@ -285,24 +285,19 @@ class InpaintingDataset:
     ) -> dict[str, InpaintSample]:
         """Load custom image-mask pairs for inpainting.
 
-        The function expects masks to be named with _mask suffix, e.g.:
-        - test-images/image1.png
-        - test-images/masks/image1.png
-
         Images larger than target_size on their smallest dimension will be scaled down
         while preserving aspect ratio.
+
+        Custom images are loaded in color, unlike other benchmark images.
         """
-        # Load all available masks first
         masks = MaskGenerator.load_masks_from_directory(mask_dir)
         if not masks:
             raise ValueError(f"No masks found in {mask_dir}")
 
-        # Load all images
         image_dir = Path(image_dir)
         if not image_dir.exists():
             raise ValueError(f"Image directory {image_dir} does not exist")
 
-        # Find all image files
         extensions = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tiff"]
         image_files = []
         for ext in extensions:
@@ -313,7 +308,7 @@ class InpaintingDataset:
 
         def resize_if_needed(image: np.ndarray, target_size: int) -> np.ndarray:
             """Resize image if its smallest dimension is larger than target_size."""
-            height, width = image.shape
+            height, width = image.shape[:2]
             min_dim = min(height, width)
 
             if min_dim > target_size:
@@ -325,37 +320,38 @@ class InpaintingDataset:
 
         samples = {}
         for image_file in image_files:
-            # Read and preprocess image
-            image = cv2.imread(str(image_file), cv2.IMREAD_GRAYSCALE)
+            image = cv2.imread(str(image_file), cv2.IMREAD_COLOR)
             if image is None:
                 logger.warning(f"Could not read image file: {image_file}")
                 continue
 
-            # Resize image if needed
-            image = resize_if_needed(image, target_size)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # BGR to RGB
+            image = image.astype(np.float32) / 255.0  # Normalize to [0, 1]
+            image = resize_if_needed(image, target_size)  # Resize image
 
-            # Look for corresponding mask
             image_name = image_file.stem
-            mask_names = [image_name, f"{image_name}_mask"]
-
-            found_mask = None
-            for mask_name in mask_names:
-                if mask_name in masks:
-                    found_mask = masks[mask_name]
-                    break
-
-            if found_mask is None:
+            if image_name not in masks:
                 logger.warning(f"No matching mask found for custom {image_name}")
                 continue
 
-            # Resize mask to match image dimensions
+            found_mask = masks[image_name]
+
             mask = found_mask.astype(np.uint8) * 255
-            if mask.shape != image.shape:
+            if mask.shape != image.shape[:2]:  # Note: comparing with image spatial dimensions only
                 mask = cv2.resize(
                     mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST
                 )
+            mask = mask.squeeze()
 
-            masked = self._apply_mask(image, mask)
+            # Create masked version (NaN in masked regions)
+            masked = image.copy()
+            mask_bool = mask > 0
+            for c in range(3):
+                channel_masked = masked[..., c]
+                channel_masked[mask_bool] = np.nan
+                masked[..., c] = channel_masked
+
+            assert len(mask.shape) == 2, f"Mask should be 2D, got shape {mask.shape}"
 
             samples[f"custom_{image_name}"] = InpaintSample(
                 original=image, masked=masked, mask=mask, category=ImageCategory.CUSTOM
