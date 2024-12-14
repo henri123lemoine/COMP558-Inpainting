@@ -18,8 +18,8 @@ class EfrosLeungParams(InpaintingParams):
     """
 
     window_size: int = 13
-    error_threshold: float = 0.25
-    sigma: float = 1.5
+    error_threshold: float = 0.15
+    sigma: float = window_size / 6.4  # Default value
 
     def __post_init__(self):
         super().__post_init__()
