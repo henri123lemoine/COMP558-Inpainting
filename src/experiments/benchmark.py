@@ -36,7 +36,6 @@ class InpaintingBenchmark:
     ):
         self.output_dir = output_dir or (DATA_PATH / "benchmark_results")
 
-        # Setup directories
         self.dataset_dir = self.output_dir / "datasets"
         self.results_dir = self.output_dir / "results"
         self.metrics_dir = self.output_dir / "metrics"
@@ -66,98 +65,12 @@ class InpaintingBenchmark:
         with Pool(initializer=worker_init) as pool:
             all_results = list(pool.imap(process_func, samples.items()))
 
-        # Flatten results
         results = [item for sublist in all_results for item in sublist]
 
         df = pd.DataFrame(results)
         generate_benchmark_report(df, algorithms, self.metrics_dir, FIGSIZE, DPI)
 
         return df
-
-    def quick_test(
-        self,
-        algorithm: InpaintingAlgorithm,
-        test_case: str = "lines",
-        mask_type: str = "center",
-        size: int = 128,
-    ) -> None:
-        """Quickly test a single algorithm on a single case."""
-        # Generate or load the test case
-        if test_case.startswith("real"):
-            samples = self.dataset.load_real_dataset(n_images=1, size=size, mask_types=[mask_type])
-        else:
-            samples = self.dataset.generate_synthetic_dataset(
-                size=size, force_regenerate=True, mask_types=[mask_type]
-            )
-
-        # Get the specific test case
-        case_name = f"{test_case}_{mask_type}"
-        sample = samples.get(case_name)
-
-        if sample is None:
-            raise ValueError(f"Test case {case_name} not found")
-
-        # Run the algorithm
-        try:
-            logger.info(f"Running {algorithm.name} on {case_name}")
-
-            # Time the execution
-            start_time = time.time()
-            result = algorithm.inpaint(
-                sample.masked / 255.0, sample.mask.astype(np.float32) / 255.0
-            )
-            exec_time = time.time() - start_time
-
-            # Handle any NaN values in output
-            result = np.nan_to_num(result, nan=0.0)  # Convert NaNs to 0
-            result = np.clip(result, 0, 1)  # Ensure values in [0,1]
-            result = (result * 255).astype(np.uint8)
-
-            # Compute metrics with execution time
-            metrics = InpaintingMetrics.compute(
-                original=sample.original, result=result, mask=sample.mask, execution_time=exec_time
-            )
-
-            # Create visualization
-            fig, axes = plt.subplots(2, 2, figsize=(10, 10))
-
-            # Original
-            axes[0, 0].imshow(sample.original, cmap="gray")
-            axes[0, 0].set_title("Original")
-            axes[0, 0].axis("off")
-
-            # Masked
-            masked_viz = sample.masked.copy()
-            masked_viz[np.isnan(masked_viz)] = 1.0  # White for visualization
-            axes[0, 1].imshow(masked_viz, cmap="gray")
-            axes[0, 1].set_title("Masked Input")
-            axes[0, 1].axis("off")
-
-            # Result
-            axes[1, 0].imshow(result, cmap="gray")
-            axes[1, 0].set_title(
-                f"Result\nPSNR: {metrics.psnr:.2f}, SSIM: {metrics.ssim:.3f}\nTime: {exec_time:.2f}s"
-            )
-            axes[1, 0].axis("off")
-
-            # Difference
-            diff = np.abs(sample.original.astype(float) - result.astype(float))
-            diff = diff / diff.max() if diff.max() > 0 else diff  # Normalize for visualization
-            axes[1, 1].imshow(diff, cmap="hot")
-            axes[1, 1].set_title("Error Map (brighter = larger error)")
-            axes[1, 1].axis("off")
-
-            plt.tight_layout()
-            plt.show()
-
-            logger.info(f"PSNR: {metrics.psnr:.2f}")
-            logger.info(f"SSIM: {metrics.ssim:.3f}")
-            logger.info(f"EMD: {metrics.emd:.3f}")
-            logger.info(f"Time: {exec_time:.2f}s")
-
-        except Exception as e:
-            logger.error(f"Error running {algorithm.name}: {str(e)}")
-            raise
 
     def _process_test_case(
         self, algorithms: list[InpaintingAlgorithm], case_data: tuple[str, InpaintSample]

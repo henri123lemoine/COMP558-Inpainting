@@ -21,28 +21,23 @@ def plot_inpainting_result(
     """Plot masked input and inpainted result side by side."""
     fig = plt.figure(figsize=figsize)
 
-    # Create masked image
     masked = original.copy()
     if masked.dtype != np.uint8:
         masked = (masked * 255).astype(np.uint8)
-    masked[mask.astype(bool)] = 255  # Set masked regions to white
+    masked[mask.astype(bool)] = 255
 
-    # Two-panel layout
     gs = GridSpec(1, 2)
 
-    # Plot masked input
     ax_masked = fig.add_subplot(gs[0, 0])
     ax_masked.imshow(masked, cmap="gray" if len(original.shape) == 2 else None)
     ax_masked.set_title("Input with Mask")
     ax_masked.axis("off")
 
-    # Plot result
     ax_result = fig.add_subplot(gs[0, 1])
     ax_result.imshow(result, cmap="gray" if len(result.shape) == 2 else None)
     ax_result.set_title("Result")
     ax_result.axis("off")
 
-    # Add metrics if provided
     if metrics is not None:
         key_metrics = {
             "PSNR": metrics.psnr,
@@ -88,19 +83,16 @@ def plot_multiple_results(
     fig = plt.figure(figsize=figsize)
     gs = GridSpec(n_algorithms + 1, 1, hspace=0)
 
-    # Create masked image for input
     masked = first_result["original"].copy()
     if masked.dtype != np.uint8:
         masked = (masked * 255).astype(np.uint8)
     masked[first_result["mask"].astype(bool)] = 255
 
-    # Plot masked input
     ax_input = fig.add_subplot(gs[0])
     ax_input.imshow(masked, cmap="gray" if is_grayscale else None)
     ax_input.set_title("Input with Mask")
     ax_input.axis("off")
 
-    # Plot each algorithm's result
     for idx, (name, images) in enumerate(results_dict.items(), 1):
         ax_result = fig.add_subplot(gs[idx])
         ax_result.imshow(images["result"], cmap="gray" if is_grayscale else None)
@@ -158,7 +150,7 @@ def plot_metrics_by_category(
         sns.boxplot(data=results, x="Category", y=metric, hue="Algorithm", ax=ax)
         ax.set_title(metric)
         ax.tick_params(axis="x", rotation=45)
-        if metric != "Time (s)":  # Add 'higher is better' note except for time
+        if metric != "Time (s)":
             ax.text(
                 0.98,
                 0.98,
@@ -210,7 +202,6 @@ def plot_metrics_distribution(
         ax.set_title(f"{metric} Distribution")
         ax.legend(title="Algorithm")
 
-        # Add direction indicator
         if metric != "Time (s)":
             ax.text(
                 0.98,
@@ -251,7 +242,6 @@ def generate_benchmark_report(
     dpi: int = 300,
 ) -> None:
     """Generate comprehensive benchmark report with tables and figures."""
-    # Create output directories
     metrics_dir = output_dir / "metrics"
     figures_dir = output_dir / "figures"
     latex_dir = output_dir / "latex"
@@ -259,10 +249,8 @@ def generate_benchmark_report(
     for directory in [metrics_dir, figures_dir, latex_dir]:
         directory.mkdir(parents=True, exist_ok=True)
 
-    # Save full results
     results.to_csv(metrics_dir / "full_results.csv", index=False)
 
-    # Generate summary statistics
     summary = (
         results.groupby(["Algorithm", "Category"])
         .agg(
@@ -276,7 +264,6 @@ def generate_benchmark_report(
         .round(4)
     )
 
-    # Save LaTeX tables
     with open(latex_dir / "summary_table.tex", "w") as f:
         f.write(
             summary.to_latex(
@@ -284,7 +271,6 @@ def generate_benchmark_report(
             )
         )
 
-    # Generate figures
     plot_metrics_by_category(
         results, save_path=figures_dir / "metrics_by_category.pdf", figsize=figsize, dpi=dpi
     )
@@ -306,23 +292,19 @@ def create_error_heatmap(
     figsize: tuple[int, int] = (12, 4),
 ) -> None:
     """Create a heatmap visualization of inpainting errors."""
-    # Compute absolute error
     error = np.abs(original.astype(float) - result.astype(float))
     error_masked = np.ma.masked_where(~mask.astype(bool), error)
 
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=figsize)
 
-    # Plot original
     ax1.imshow(original, cmap="gray" if len(original.shape) == 2 else None)
     ax1.set_title("Original")
     ax1.axis("off")
 
-    # Plot result
     ax2.imshow(result, cmap="gray" if len(result.shape) == 2 else None)
     ax2.set_title("Inpainted Result")
     ax2.axis("off")
 
-    # Plot error heatmap
     im = ax3.imshow(error_masked, cmap="hot")
     ax3.set_title("Error Heatmap")
     ax3.axis("off")

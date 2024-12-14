@@ -1,8 +1,6 @@
 from dataclasses import dataclass
-from pathlib import Path
 
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
 import onnxruntime as ort
 from huggingface_hub import hf_hub_download
@@ -51,7 +49,6 @@ class LamaInpainting(InpaintingAlgorithm):
             noise = np.random.normal(valid_mean, valid_std, image.shape)
             noisy_image[mask_bool] = np.clip(noise[mask_bool], 0, 1)
 
-        # Convert single channel to 3 channels by repeating
         if len(noisy_image.shape) == 2:
             noisy_image = np.stack([noisy_image] * 3, axis=-1)
 
@@ -70,7 +67,7 @@ class LamaInpainting(InpaintingAlgorithm):
             mask_inverted, self.params.input_size, interpolation=cv2.INTER_NEAREST
         )
 
-        # Add batch dimension and ensure correct format (NCHW)
+        # ONNX model expects NCHW tensor format
         image_input = np.transpose(image_resized, (2, 0, 1))[None]
         mask_input = mask_resized[None, None]
 
@@ -86,26 +83,16 @@ class LamaInpainting(InpaintingAlgorithm):
         mask: np.ndarray,
     ) -> Image:
         """Postprocess model output."""
-        # Convert from [0, 255] to [0, 1]
-        result = output[0].transpose(1, 2, 0) / 255.0
-
-        # Clip values to valid range
+        result = output[0].transpose(1, 2, 0) / 255.0  # Convert from [0, 255] to [0, 1]
         result = np.clip(result, 0, 1)
-
-        # Resize back to original shape if needed
         if original_shape[:2] != result.shape[:2]:
             result = cv2.resize(result, (original_shape[1], original_shape[0]))
-
-        # Convert back to grayscale by averaging channels if input was grayscale
         if len(original_shape) == 2:
             result = np.mean(result, axis=2)
-
-            # Blend with original image using mask
             mask_bool = mask > 0.5
             final_result = original_image.copy()
             final_result[mask_bool] = result[mask_bool]
             return final_result
-
         return result
 
     def inpaint(self, image: Image, mask: Mask, **kwargs) -> Image:
@@ -114,26 +101,16 @@ class LamaInpainting(InpaintingAlgorithm):
             f"Starting inpainting with image shape {image.shape} and mask shape {mask.shape}"
         )
         original_shape = image.shape
-
-        # Store original image for blending
         original_image = image.copy()
-
-        # Preprocess inputs
         image_input, mask_input = self.preprocess(image, mask)
-
-        # Get input names from the model
         input_name = self.session.get_inputs()[0].name
         mask_name = self.session.get_inputs()[1].name
-
-        # Log model input information
         logger.info(
             f"Model inputs - {input_name}: {image_input.shape}, {mask_name}: {mask_input.shape}"
         )
-
-        # Run inference
         try:
             outputs = self.session.run(
-                None,  # Get all outputs
+                None,
                 {
                     input_name: image_input.astype(np.float32),
                     mask_name: mask_input.astype(np.float32),
@@ -144,14 +121,10 @@ class LamaInpainting(InpaintingAlgorithm):
             logger.error(f"Model inference failed: {str(e)}")
             raise
 
-        # Postprocess output
         result = self.postprocess(outputs[0], original_shape, original_image, mask)
-
-        # Final sanity check
         if result.shape != original_shape:
             logger.error(f"Shape mismatch! Original: {original_shape}, Result: {result.shape}")
             raise ValueError("Output shape does not match input shape")
-
         return result
 
 

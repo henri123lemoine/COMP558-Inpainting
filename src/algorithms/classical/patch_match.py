@@ -82,7 +82,6 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         patch = image[y1:y2, x1:x2]
         valid = mask[y1:y2, x1:x2] == 0
 
-        # Handle boundary cases with padding
         if patch.shape[:2] != (self.params.patch_size, self.params.patch_size):
             pad_y1 = self.half_patch - (y - y1)
             pad_y2 = self.half_patch - (y2 - y - 1)
@@ -171,11 +170,10 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         target_y, target_x = np.where(mask > 0)
 
         for y, x in zip(target_y, target_x):
-            # Strategy 1: Try closest valid pixels first
             best_dist = float("inf")
             best_pos = None
 
-            # Check immediate neighbors first
+            # Check immediate neighbors first for better coherence
             for dy in [-1, 0, 1]:
                 for dx in [-1, 0, 1]:
                     ny, nx = y + dy, x + dx
@@ -189,7 +187,7 @@ class PatchMatchInpainting(InpaintingAlgorithm):
                 nn_field[y, x] = best_pos
                 continue
 
-            # Strategy 2: Sample random positions with distance weighting
+            # Sample random positions with distance weighting
             candidates = []
             for _ in range(min(self.MAX_RANDOM_SAMPLES, len(source_y))):
                 idx = np.random.randint(len(source_y))
@@ -335,14 +333,11 @@ class PatchMatchInpainting(InpaintingAlgorithm):
                 f"patch size {self.params.patch_size}"
             )
 
-        # Debug prints to understand input values
         logger.debug(f"Initial image range: [{np.min(image):.3f}, {np.max(image):.3f}]")
         logger.debug(f"Mask range: [{np.min(mask):.3f}, {np.max(mask):.3f}]")
         logger.debug(f"Mask sum: {np.sum(mask > 0)} pixels to inpaint")
 
-        # Initialize result image - ensure we start with the correct values
         result = image.copy()
-        # Explicitly set masked regions to image mean as initial guess
         if len(image.shape) == 3:
             initial_guess = np.mean(image[mask == 0], axis=0)
             result[mask > 0] = initial_guess[None, None, :]
@@ -352,23 +347,13 @@ class PatchMatchInpainting(InpaintingAlgorithm):
 
         current_mask = mask.copy()  # mask > 0 indicates regions to inpaint
 
-        # Main PatchMatch iterations
         for iter_idx in tqdm(range(self.params.num_iterations), desc="PatchMatch"):
-            # Debug: check result range before updating
-            logger.debug(
-                f"Iteration {iter_idx}, result range: [{np.min(result):.3f}, {np.max(result):.3f}]"
-            )
-
-            # Initialize NN field
             nn_field = self._initialize_nn_field(result, current_mask)
-
-            # Multiple refinement iterations
             for _ in range(3):
                 self._propagate(result, current_mask, nn_field, reverse=False)
                 self._random_search(result, current_mask, nn_field)
                 self._propagate(result, current_mask, nn_field, reverse=True)
 
-            # Update image using current NN field
             new_result = result.copy()
             masked_coords = np.where(current_mask > 0)
 
@@ -379,37 +364,23 @@ class PatchMatchInpainting(InpaintingAlgorithm):
                 else:
                     logger.warning(f"Tried to copy from masked pixel at ({nn_y}, {nn_x})")
 
-            # Debug: check new_result values
-            logger.debug(f"New result range: [{np.min(new_result):.3f}, {np.max(new_result):.3f}]")
-
-            # Only blend masked regions
             blend_mask = current_mask.astype(float)
             blend_mask = gaussian_filter(blend_mask, sigma=1.0)
             blend_mask = np.clip(blend_mask, 0, 1)
 
-            # Debug: check blend mask
-            logger.debug(f"Blend mask range: [{np.min(blend_mask):.3f}, {np.max(blend_mask):.3f}]")
-
-            # Blend for all channels if color image
             if len(image.shape) == 3:
-                blend_mask = blend_mask[..., None]  # Add channel dimension for broadcasting
+                blend_mask = blend_mask[..., None]
 
             # Only update pixels in the masked region
             result = result * (1 - blend_mask) + new_result * blend_mask
 
-            # Update mask for next iteration, but only in the original masked region
             if iter_idx < self.params.num_iterations - 1:
                 new_mask = gaussian_filter(current_mask.astype(float), sigma=0.5) > 0.5
-                # Only update within original masked region
                 new_mask = new_mask & (mask > 0)
                 current_mask = new_mask
 
-        # Final verification
         result = np.clip(result, 0, 1)
-        # Ensure we haven't modified unmasked regions
-        result[mask == 0] = image[mask == 0]
-
-        logger.debug("PatchMatch inpainting completed")
+        result[mask == 0] = image[mask == 0]  # Ensure we haven't modified unmasked regions
         logger.debug(f"Final result range: [{np.min(result):.3f}, {np.max(result):.3f}]")
         return result
 

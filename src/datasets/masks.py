@@ -321,7 +321,6 @@ if __name__ == "__main__":
     import numpy as np
     from scipy import ndimage
 
-    # Test mask generation with different configurations
     test_configs = [
         MaskConfig(coverage_range=(0.1, 0.2), thickness_range=(2, 4), num_components=(2, 3)),
         MaskConfig(coverage_range=(0.3, 0.4), thickness_range=(4, 8), num_components=(4, 6)),
@@ -342,33 +341,27 @@ if __name__ == "__main__":
         plt.tight_layout()
         return fig
 
-    # Test each configuration
     test_image = np.zeros((128, 128), dtype=np.uint8)
 
     for i, config in enumerate(test_configs):
         mask_gen = MaskGenerator(config)
         masks = []
 
-        # Generate all mask types
         for mask_type in ["center", "random", "brush", "text"]:
             mask = mask_gen.generate(test_image, mask_type)
             coverage = np.mean(mask > 0)
             logger.debug(f"Config {i+1}, {mask_type} mask coverage: {coverage:.1%}")
 
-            if mask_type != "center":  # Skip connectivity check for center mask
+            if mask_type != "center":
                 labeled, num_features = ndimage.label(mask)
                 logger.debug(f"Config {i+1}, {mask_type} mask components: {num_features}")
 
             masks.append((mask_type, mask))
 
-        # Plot results
         fig = plot_masks(test_image, masks, f"Config {i+1}")
         plt.show()
 
-    # Test special cases
     mask_gen = MaskGenerator(MaskConfig())
-
-    # Test text mask with different parameters
     text_masks = [
         ("Default", mask_gen.generate(test_image, "text")),
         ("Large", mask_gen.generate(test_image, "text")),
@@ -377,7 +370,6 @@ if __name__ == "__main__":
     fig = plot_masks(test_image, text_masks, "Text Masks")
     plt.show()
 
-    # Test brush mask with different strokes
     brush_masks = [
         ("Few strokes", mask_gen.generate(test_image, "brush", n_strokes=2)),
         ("Thin", mask_gen.generate(test_image, "brush", stroke_width=1)),
@@ -386,11 +378,9 @@ if __name__ == "__main__":
     fig = plot_masks(test_image, brush_masks, "Brush Masks")
     plt.show()
 
-    # Test loading custom masks
     test_mask_dir = Path("data/test_outputs/custom_masks")
     test_mask_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create some test masks and save them
     test_cases = [
         ("custom_circle", cv2.circle(np.zeros((64, 64), dtype=np.uint8), (32, 32), 20, 255, -1)),
         (
@@ -402,12 +392,10 @@ if __name__ == "__main__":
     for name, mask in test_cases:
         cv2.imwrite(str(test_mask_dir / f"{name}.png"), mask)
 
-    # Test loading them back
     loaded_masks = MaskGenerator.load_masks_from_directory(
         test_mask_dir,
     )
 
-    # Visualize loaded masks
     fig = plot_masks(
         test_image,
         [(name, mask.astype(np.uint8) * 255) for name, mask in loaded_masks.items()],
@@ -415,13 +403,12 @@ if __name__ == "__main__":
     )
     plt.show()
 
-    ## Mask Generation For Specific Image
     image = cv2.imread("test-images/the_scream.jpg")
     if image is None:
         raise ValueError("Could not read the_scream.jpg")
 
     config = MaskConfig(
-        coverage_range=(0.14, 0.16),  # Target ~15% coverage
+        coverage_range=(0.14, 0.16),  # ~15% coverage
         thickness_range=(1, 2),  # Thin strokes
         num_components=(15, 20),  # More strokes to increase coverage
     )

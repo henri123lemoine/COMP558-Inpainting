@@ -18,8 +18,8 @@ PathLike: TypeAlias = str | Path
 class InpaintingParams:
     """Base parameters for all inpainting algorithms."""
 
-    image_path: str = "test-images/portrait.png"
-    mask_path: str = "test-images/masks/portrait.png"
+    image_path: str = "test-images/the_scream.jpg"
+    mask_path: str = "test-images/masks/the_scream.jpg"
     scale_factor: float = 1.0
     save_output: bool = True
     greyscale: bool = False
@@ -177,24 +177,20 @@ class InpaintingAlgorithm(ABC):
         Returns:
             Tuple of (image, mask) normalized to [0, 1] range
         """
-        # Validate paths
         if not Path(image_path).exists():
             raise FileNotFoundError(f"Image not found: {image_path}")
         if mask_path and not Path(mask_path).exists():
             raise FileNotFoundError(f"Mask not found: {mask_path}")
 
-        # Load image
         flag = cv2.IMREAD_GRAYSCALE if greyscale else cv2.IMREAD_COLOR
         image = cv2.imread(str(image_path), flag)
         if image is None:
             raise ValueError(f"Failed to load image: {image_path}")
 
-        # Convert color space and normalize
         if not greyscale and len(image.shape) == 3:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         image = image.astype(np.float32) / 255.0
 
-        # Load and normalize mask if provided
         mask = None
         if mask_path:
             mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
@@ -202,7 +198,6 @@ class InpaintingAlgorithm(ABC):
                 raise ValueError(f"Failed to load mask: {mask_path}")
             mask = mask.astype(np.float32) / 255.0
 
-        # Validate shapes
         if mask is not None and image.shape[:2] != mask.shape:
             raise ValueError(
                 f"Image shape {image.shape[:2]} does not match mask shape {mask.shape}"
@@ -221,16 +216,13 @@ class InpaintingAlgorithm(ABC):
         original: Image | None = None,
     ) -> None:
         """Save inpainting result, optionally with side-by-side comparison."""
-        # Validate inputs
         if not isinstance(result, np.ndarray):
             raise TypeError("Result must be a numpy array")
         if original is not None and original.shape != result.shape:
             raise ValueError("Original and result shapes must match")
 
-        # Convert to uint8 range [0, 255]
         result_uint8 = (result * 255).astype(np.uint8)
 
-        # Create side-by-side comparison if original provided
         if original is not None:
             original_uint8 = (original * 255).astype(np.uint8)
             result_uint8 = np.hstack([original_uint8, result_uint8])
@@ -239,11 +231,9 @@ class InpaintingAlgorithm(ABC):
         if len(result_uint8.shape) == 3:
             result_uint8 = cv2.cvtColor(result_uint8, cv2.COLOR_RGB2BGR)
 
-        # Ensure output directory exists
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Save image
         if not cv2.imwrite(str(output_path), result_uint8):
             raise IOError(f"Failed to save result to {output_path}")
 
@@ -285,11 +275,11 @@ class InpaintingAlgorithm(ABC):
             for c in range(masked.shape[2]):
                 channel = masked[..., c]
                 mask = np.isnan(channel)
-                masked_viz[..., c] = np.where(mask, 1, channel)  # Use mid-gray for masked regions
+                masked_viz[..., c] = np.where(mask, 1, channel)
         else:
             # For grayscale
             masked_viz = np.ma.masked_array(masked, mask=np.isnan(masked))
-            masked_viz = np.where(np.isnan(masked), 1, masked)  # Use mid-gray for masked regions
+            masked_viz = np.where(np.isnan(masked), 1, masked)
 
         plt.imshow(masked_viz, cmap="gray" if len(masked.shape) == 2 else None)
         plt.title("Masked Image")
