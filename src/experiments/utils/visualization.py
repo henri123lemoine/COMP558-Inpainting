@@ -20,21 +20,26 @@ def plot_inpainting_result(
 ) -> None:
     """Plot masked input and inpainted result side by side."""
     fig = plt.figure(figsize=figsize)
-
+    is_grayscale = len(original.shape) == 2
     masked = original.copy()
     if masked.dtype != np.uint8:
         masked = (masked * 255).astype(np.uint8)
-    masked[mask.astype(bool)] = 255
+
+    if is_grayscale:
+        masked[mask.astype(bool)] = 255
+    else:
+        mask_3d = np.repeat(mask[..., np.newaxis], 3, axis=2)
+        masked[mask_3d.astype(bool)] = 255
 
     gs = GridSpec(1, 2)
 
     ax_masked = fig.add_subplot(gs[0, 0])
-    ax_masked.imshow(masked, cmap="gray" if len(original.shape) == 2 else None)
+    ax_masked.imshow(masked, cmap="gray" if is_grayscale else None)
     ax_masked.set_title("Input with Mask")
     ax_masked.axis("off")
 
     ax_result = fig.add_subplot(gs[0, 1])
-    ax_result.imshow(result, cmap="gray" if len(result.shape) == 2 else None)
+    ax_result.imshow(result, cmap="gray" if is_grayscale else None)
     ax_result.set_title("Result")
     ax_result.axis("off")
 
@@ -86,7 +91,12 @@ def plot_multiple_results(
     masked = first_result["original"].copy()
     if masked.dtype != np.uint8:
         masked = (masked * 255).astype(np.uint8)
-    masked[first_result["mask"].astype(bool)] = 255
+
+    if is_grayscale:
+        masked[first_result["mask"].astype(bool)] = 255
+    else:
+        mask_3d = np.repeat(first_result["mask"][..., np.newaxis], 3, axis=2)
+        masked[mask_3d.astype(bool)] = 255
 
     ax_input = fig.add_subplot(gs[0])
     ax_input.imshow(masked, cmap="gray" if is_grayscale else None)
@@ -292,23 +302,30 @@ def create_error_heatmap(
     figsize: tuple[int, int] = (12, 4),
 ) -> None:
     """Create a heatmap visualization of inpainting errors."""
+    is_grayscale = len(original.shape) == 2
     error = np.abs(original.astype(float) - result.astype(float))
+    if not is_grayscale:
+        error = np.mean(error, axis=2)
+
     error_masked = np.ma.masked_where(~mask.astype(bool), error)
 
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=figsize)
 
-    ax1.imshow(original, cmap="gray" if len(original.shape) == 2 else None)
+    # Display original with appropriate colormap
+    ax1.imshow(original, cmap="gray" if is_grayscale else None)
     ax1.set_title("Original")
     ax1.axis("off")
 
-    ax2.imshow(result, cmap="gray" if len(result.shape) == 2 else None)
+    # Display result with appropriate colormap
+    ax2.imshow(result, cmap="gray" if is_grayscale else None)
     ax2.set_title("Inpainted Result")
     ax2.axis("off")
 
+    # Error heatmap is always displayed using a heatmap colormap
     im = ax3.imshow(error_masked, cmap="hot")
     ax3.set_title("Error Heatmap")
     ax3.axis("off")
-    plt.colorbar(im, ax=ax3, label="Absolute Error")
+    plt.colorbar(im, ax=ax3, label="Mean Absolute Error")
 
     plt.tight_layout()
 
