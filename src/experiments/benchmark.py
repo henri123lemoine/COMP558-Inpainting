@@ -1,4 +1,6 @@
+import functools
 import time
+from multiprocessing import Pool
 from pathlib import Path
 from typing import Any
 
@@ -58,62 +60,17 @@ class InpaintingBenchmark:
     def run(
         self, algorithms: list[InpaintingAlgorithm], samples: dict[str, InpaintSample]
     ) -> pd.DataFrame:
-        """Run complete benchmark suite."""
-        results = []
+        """Run complete benchmark suite in parallel."""
+        # Create a partial function with the algorithms argument fixed
+        process_func = functools.partial(self._process_test_case, algorithms)
 
-        for case_name, sample in tqdm(samples.items(), desc="Test cases"):
-            base_name = case_name
-            mask_type = (
-                "custom" if sample.category == ImageCategory.CUSTOM else case_name.rsplit("_", 1)[1]
-            )
+        # Create a pool with default number of processes (uses all available cores)
+        with Pool() as pool:
+            # Map the processing function over all samples
+            all_results = pool.map(process_func, samples.items())
 
-            algorithm_results = {}
-            for algorithm in algorithms:
-                logger.debug(f"Running {algorithm.name} on {base_name}")
-
-                try:
-                    start_time = time.time()
-                    original, masked, mask, result = algorithm.inpaint(sample.original, sample.mask)
-
-                    exec_time = time.time() - start_time
-
-                    metrics = InpaintingMetrics.compute(
-                        original=original,
-                        result=result,
-                        mask=mask,
-                        execution_time=exec_time,
-                    )
-
-                    algorithm_results[algorithm.name] = {"result": result, "metrics": metrics}
-
-                    results.append(
-                        {
-                            "Algorithm": algorithm.name,
-                            "Case": base_name,
-                            "Mask": mask_type,
-                            "Category": str(sample.category.name),
-                            **metrics.to_dict(),
-                        }
-                    )
-
-                    self._save_individual_result(
-                        algorithm_name=algorithm.name,
-                        case_name=base_name,
-                        mask_name=mask_type,
-                        image=sample.original,
-                        mask=sample.mask,
-                        result=result,
-                        metrics=metrics,
-                    )
-
-                except Exception as e:
-                    logger.error(f"Error processing {case_name} with {algorithm.name}: {str(e)}")
-                    continue
-
-            if algorithm_results:
-                self._save_comparison(
-                    base_name, mask_type, sample.original, sample.mask, algorithm_results
-                )
+        # Flatten the results list
+        results = [item for sublist in all_results for item in sublist]
 
         df = pd.DataFrame(results)
         generate_benchmark_report(df, algorithms, self.metrics_dir, FIGSIZE, DPI)
@@ -204,6 +161,59 @@ class InpaintingBenchmark:
         except Exception as e:
             logger.error(f"Error running {algorithm.name}: {str(e)}")
             raise
+
+    def _process_test_case(
+        self, algorithms: list[InpaintingAlgorithm], case_data: tuple[str, InpaintSample]
+    ) -> list[dict]:
+        """Process a single test case for all algorithms."""
+        case_name, sample = case_data
+        results = []
+
+        base_name = case_name
+        mask_type = (
+            "custom" if sample.category == ImageCategory.CUSTOM else case_name.rsplit("_", 1)[1]
+        )
+
+        for algorithm in algorithms:
+            logger.debug(f"Running {algorithm.name} on {base_name}")
+
+            try:
+                start_time = time.time()
+                original, masked, mask, result = algorithm.inpaint(sample.original, sample.mask)
+                exec_time = time.time() - start_time
+
+                metrics = InpaintingMetrics.compute(
+                    original=original,
+                    result=result,
+                    mask=mask,
+                    execution_time=exec_time,
+                )
+
+                results.append(
+                    {
+                        "Algorithm": algorithm.name,
+                        "Case": base_name,
+                        "Mask": mask_type,
+                        "Category": str(sample.category.name),
+                        **metrics.to_dict(),
+                    }
+                )
+
+                self._save_individual_result(
+                    algorithm_name=algorithm.name,
+                    case_name=base_name,
+                    mask_name=mask_type,
+                    image=sample.original,
+                    mask=sample.mask,
+                    result=result,
+                    metrics=metrics,
+                )
+
+            except Exception as e:
+                logger.error(f"Error processing {case_name} with {algorithm.name}: {str(e)}")
+                continue
+
+        return results
 
     def _save_individual_result(
         self,
