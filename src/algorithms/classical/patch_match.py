@@ -90,28 +90,33 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         x: int,
     ) -> tuple[Patch, PatchMask]:
         """Extract patch and validity mask centered at (y, x)."""
-        h, w = image.shape
+        h, w = image.shape[:2]  # Get spatial dimensions only
         y1 = max(0, y - self.half_patch)
         y2 = min(h, y + self.half_patch + 1)
         x1 = max(0, x - self.half_patch)
         x2 = min(w, x + self.half_patch + 1)
 
         patch = image[y1:y2, x1:x2]
-        valid = mask[y1:y2, x1:x2] == 0  # Valid pixels are where mask is 0 (not to be inpainted)
+        valid = mask[y1:y2, x1:x2] == 0
 
         # Handle boundary cases with padding
-        if patch.shape != (self.params.patch_size, self.params.patch_size):
+        if patch.shape[:2] != (self.params.patch_size, self.params.patch_size):
             pad_y1 = self.half_patch - (y - y1)
             pad_y2 = self.half_patch - (y2 - y - 1)
             pad_x1 = self.half_patch - (x - x1)
             pad_x2 = self.half_patch - (x2 - x - 1)
 
             padding = ((max(0, pad_y1), max(0, pad_y2)), (max(0, pad_x1), max(0, pad_x2)))
-            patch = np.pad(patch, padding, mode="edge")
-            # Padded regions should be considered invalid
-            valid = np.pad(valid, padding, mode="constant", constant_values=False)
+            if len(image.shape) == 3:
+                padding += ((0, 0),)
 
-        assert patch.shape == (self.params.patch_size, self.params.patch_size)
+            patch = np.pad(patch, padding, mode="edge")
+            valid = np.pad(valid, padding[:2], mode="constant", constant_values=False)
+
+        if len(image.shape) == 3:
+            assert patch.shape == (self.params.patch_size, self.params.patch_size, image.shape[2])
+        else:
+            assert patch.shape == (self.params.patch_size, self.params.patch_size)
         assert valid.shape == (self.params.patch_size, self.params.patch_size)
 
         if np.any(np.isnan(patch)):
@@ -149,7 +154,12 @@ class PatchMatchInpainting(InpaintingAlgorithm):
 
         # Compute weighted SSD
         diff = (patch1_valid - patch2_valid) ** 2
-        weighted_diff = diff * self.weights * valid
+
+        if len(patch1.shape) == 3:
+            # For color images, sum across channels and weight spatially
+            weighted_diff = np.sum(diff, axis=2) * self.weights * valid
+        else:
+            weighted_diff = diff * self.weights * valid
 
         # Early exit if partial sum exceeds threshold
         if early_exit is not None:
@@ -339,10 +349,7 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         mask: Mask,
     ) -> Image:
         """Inpaint using enhanced PatchMatch algorithm."""
-        if len(image.shape) != 2:
-            raise ValueError("Only grayscale images are supported")
-
-        h, w = image.shape
+        h, w = image.shape[:2]
         if h < self.params.patch_size or w < self.params.patch_size:
             raise ValueError(
                 f"Image dimensions ({h}, {w}) must be larger than "
@@ -357,8 +364,12 @@ class PatchMatchInpainting(InpaintingAlgorithm):
         # Initialize result image - ensure we start with the correct values
         result = image.copy()
         # Explicitly set masked regions to image mean as initial guess
-        initial_guess = np.mean(image[mask == 0])
-        result[mask > 0] = initial_guess
+        if len(image.shape) == 3:
+            initial_guess = np.mean(image[mask == 0], axis=0)
+            result[mask > 0] = initial_guess[None, None, :]
+        else:
+            initial_guess = np.mean(image[mask == 0])
+            result[mask > 0] = initial_guess
 
         current_mask = mask.copy()  # mask > 0 indicates regions to inpaint
 
@@ -380,11 +391,10 @@ class PatchMatchInpainting(InpaintingAlgorithm):
 
             # Update image using current NN field
             new_result = result.copy()
-            masked_coords = np.where(current_mask > 0)  # These are pixels we want to fill
+            masked_coords = np.where(current_mask > 0)
 
             for y, x in zip(*masked_coords):
                 nn_y, nn_x = nn_field[y, x]
-                # Only copy from unmasked source pixels
                 if not current_mask[nn_y, nn_x]:
                     new_result[y, x] = result[nn_y, nn_x]
                 else:
@@ -394,12 +404,16 @@ class PatchMatchInpainting(InpaintingAlgorithm):
             logger.debug(f"New result range: [{np.min(new_result):.3f}, {np.max(new_result):.3f}]")
 
             # Only blend masked regions
-            blend_mask = current_mask.astype(float)  # Only blend where mask > 0
+            blend_mask = current_mask.astype(float)
             blend_mask = gaussian_filter(blend_mask, sigma=1.0)
             blend_mask = np.clip(blend_mask, 0, 1)
 
             # Debug: check blend mask
             logger.debug(f"Blend mask range: [{np.min(blend_mask):.3f}, {np.max(blend_mask):.3f}]")
+
+            # Blend for all channels if color image
+            if len(image.shape) == 3:
+                blend_mask = blend_mask[..., None]  # Add channel dimension for broadcasting
 
             # Only update pixels in the masked region
             result = result * (1 - blend_mask) + new_result * blend_mask
