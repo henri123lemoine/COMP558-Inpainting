@@ -163,3 +163,4 @@ cython_debug/
 
 # Miscellaneous
 data/
+.DS_Store
